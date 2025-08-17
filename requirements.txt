@@ -1,1 +1,3 @@
-git+https://github.com/PyWaves/PyWaves.git
+selenium
+webdriver-manager
+chromedriver-autoinstaller
