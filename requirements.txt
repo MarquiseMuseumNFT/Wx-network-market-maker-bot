@@ -1,1 +1,1 @@
-pywaves==0.8.20
+git+https://github.com/PyWaves/PyWaves.git@master
