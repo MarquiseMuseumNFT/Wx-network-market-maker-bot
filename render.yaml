@@ -1,6 +1,7 @@
 services:
-  - type: web
-    name: wx-market-maker
+  - type: worker
+    name: wx-bot
     env: python
+    plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "bash start.sh"
+    startCommand: "python main.py"
