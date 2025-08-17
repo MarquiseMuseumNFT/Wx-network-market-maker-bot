@@ -1,1 +1,1 @@
-pywaves
+pywaves==0.8.20
