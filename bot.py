@@ -22,12 +22,11 @@ ASSET1 = os.environ.get("AMOUNT_ASSET", "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK
 ASSET2 = os.environ.get("PRICE_ASSET",  "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
 
 # Explicitly choose fee asset (default WAVES)
-MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")  # "WAVES" or base58 asset id
+MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")
 
 # ===============================
 # Keys
 # ===============================
-# Derive a deterministic signing key from SEED (simple hash → ed25519)
 seed_hash = hashlib.blake2b(SEED, digest_size=32).digest()
 sk = SigningKey(seed_hash)
 pk = sk.verify_key
@@ -65,15 +64,9 @@ except Exception as e:
 # Order v3 binary serializer
 # ===============================
 def _pack_long(x: int) -> bytes:
-    # Waves uses signed 64-bit big endian
     return struct.pack(">q", int(x))
 
 def _asset_id_bytes(asset_id: str) -> bytes:
-    """
-    For asset references in Order/AssetPair/MatcherFeeAsset:
-    - WAVES: single byte 0x00
-    - Other asset: 0x01 + 32 bytes of assetId
-    """
     if asset_id is None or asset_id == "" or asset_id.upper() == "WAVES":
         return b"\x00"
     return b"\x01" + base58.b58decode(asset_id)
@@ -82,22 +75,6 @@ def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
     return _asset_id_bytes(amount_asset) + _asset_id_bytes(price_asset)
 
 def order_v3_bytes(order: dict) -> bytes:
-    """
-    Binary layout (Order V3):
-      [0] version: 1 byte (0x03)
-      [1] senderPublicKey: 32 bytes
-      [2] matcherPublicKey: 32 bytes
-      [3] assetPair:
-            amountAsset: (0x00) or (0x01 + 32b)
-            priceAsset:  (0x00) or (0x01 + 32b)
-      [4] orderType: 1 byte (0 = BUY, 1 = SELL)
-      [5] price: int64 (be)
-      [6] amount: int64 (be)
-      [7] timestamp: int64 (be)
-      [8] expiration: int64 (be)
-      [9] matcherFee: int64 (be)
-     [10] matcherFeeAssetId: (0x00) or (0x01 + 32b)
-    """
     b = bytearray()
     b += b"\x03"  # version
     b += base58.b58decode(order["senderPublicKey"])
@@ -198,7 +175,7 @@ def cancel_all():
         print("Cancel error (listing active orders):", e)
 
 # ===============================
-# Place order (v3 + proper signing)
+# Place order (fee fixed at 0.01 WAVES)
 # ===============================
 def place_order(amount_units: float, price_quote: float, side: str):
     order_core = {
@@ -206,13 +183,13 @@ def place_order(amount_units: float, price_quote: float, side: str):
         "senderPublicKey": PUBKEY,
         "matcherPublicKey": MATCHER_PUBKEY,
         "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
-        "orderType": side,  # "buy" or "sell"
+        "orderType": side,
         "price": int(round(price_quote * 10**8)),
         "amount": int(round(amount_units * 10**8)),
         "timestamp": now_ms(),
         "expiration": now_ms() + 24 * 60 * 60 * 1000,
-        "matcherFee": 1000000,  # 0.01 WAVES
-        "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,  # serialize as WAVES (0x00) by default
+        "matcherFee": 1000000,  # ✅ 0.01 WAVES
+        "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
     proof = sign_order_proof(order_core)
@@ -235,22 +212,17 @@ def place_order(amount_units: float, price_quote: float, side: str):
 def run():
     while True:
         try:
-            # clear existing grid
             cancel_all()
-
             mid = get_price()
             print(f"Mid price used: {mid}")
-
             step = mid * (GRID_SPACING_PCT / 100.0)
             for i in range(1, GRID_LEVELS + 1):
                 p_buy  = mid - i * step
                 p_sell = mid + i * step
                 place_order(ORDER_NOTIONAL, p_buy,  "buy")
                 place_order(ORDER_NOTIONAL, p_sell, "sell")
-
         except Exception as e:
             print("Error in main loop:", repr(e))
-
         time.sleep(REFRESH_SEC)
 
 # ===============================
