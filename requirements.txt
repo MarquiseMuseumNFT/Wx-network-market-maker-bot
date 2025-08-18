@@ -1,3 +1,4 @@
 requests
 base58
 pynacl
+ed25519
