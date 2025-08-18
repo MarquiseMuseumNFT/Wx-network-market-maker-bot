@@ -21,6 +21,7 @@ sk = SigningKey(seed_hash)
 pk = sk.verify_key
 PUBKEY = base58.b58encode(pk.encode()).decode()
 
+# --- Price sources ---
 def get_htx_price():
     url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
     r = requests.get(url, timeout=5)
@@ -43,6 +44,7 @@ def get_price():
         print("HTX feed failed, fallback to WX mid →", e)
         return get_wx_mid()
 
+# --- Orders ---
 def get_my_orders():
     url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/{PUBKEY}/active"
     return requests.get(url).json()
@@ -65,6 +67,9 @@ def cancel_all():
         print("Cancel error:", e)
 
 def sign_order(order: dict) -> dict:
+    # 🔑 Ensure matcherPublicKey never included
+    if "matcherPublicKey" in order:
+        del order["matcherPublicKey"]
     raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
     sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
     order["signature"] = base58.b58encode(sig).decode()
@@ -89,6 +94,7 @@ def place_order(amount, price, side):
     r = requests.post(f"{MATCHER}/matcher/orderbook", json=signed)
     print("Order resp:", r.text)
 
+# --- Main loop ---
 def run():
     while True:
         try:
