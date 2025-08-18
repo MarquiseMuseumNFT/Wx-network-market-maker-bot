@@ -1,5 +1,5 @@
 import os, time, json, base58, hashlib, requests
-import ed25519
+from nacl.signing import SigningKey
 
 # --- Config from Render ---
 SEED       = os.environ["WAVES_SEED"].encode()
@@ -17,9 +17,9 @@ ASSET2 = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
 
 # --- Keys ---
 seed_hash = hashlib.blake2b(SEED, digest_size=32).digest()
-sk = ed25519.SigningKey(seed_hash)
-pk = sk.get_verifying_key()
-PUBKEY = base58.b58encode(pk.to_bytes()).decode()
+sk = SigningKey(seed_hash)
+pk = sk.verify_key
+PUBKEY = base58.b58encode(pk.encode()).decode()
 
 def matcher_key():
     r = requests.get(f"{MATCHER}/matcher")
@@ -32,7 +32,7 @@ def get_orderbook():
 
 def sign_order(order: dict) -> dict:
     raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
-    sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest())
+    sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
     order["signature"] = base58.b58encode(sig).decode()
     return order
 
