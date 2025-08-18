@@ -21,11 +21,6 @@ sk = SigningKey(seed_hash)
 pk = sk.verify_key
 PUBKEY = base58.b58encode(pk.encode()).decode()
 
-def matcher_key():
-    r = requests.get(f"{MATCHER}/matcher")
-    r.raise_for_status()
-    return r.text.strip()
-
 def get_htx_price():
     url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
     r = requests.get(url, timeout=5)
@@ -78,7 +73,6 @@ def sign_order(order: dict) -> dict:
 def place_order(amount, price, side):
     order = {
         "senderPublicKey": PUBKEY,
-        "matcherPublicKey": matcher_key(),
         "amount": int(amount * 10**8),   # assumes 8 decimals
         "price": int(price * 10**8),
         "orderType": side,
