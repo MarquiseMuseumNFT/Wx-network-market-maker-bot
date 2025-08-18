@@ -6,7 +6,7 @@ SEED       = os.environ["WAVES_SEED"].encode()
 NODE       = os.environ.get("WAVES_NODE", "https://nodes.wavesnodes.com")
 MATCHER    = os.environ.get("WX_MATCHER", "https://matcher.wx.network")
 
-GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 10))   # 10 levels each side
+GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 10))
 GRID_SPACING_PCT= float(os.environ.get("GRID_SPACING_PCT", 0.35))
 ORDER_NOTIONAL  = float(os.environ.get("ORDER_NOTIONAL", 25))
 REFRESH_SEC     = int(os.environ.get("REFRESH_SEC", 20))
@@ -21,31 +21,31 @@ sk = SigningKey(seed_hash)
 pk = sk.verify_key
 PUBKEY = base58.b58encode(pk.encode()).decode()
 
+def sign(data: dict) -> dict:
+    raw = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
+    sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
+    data["signature"] = base58.b58encode(sig).decode()
+    return data
+
 def get_htx_price():
-    url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
-    r = requests.get(url, timeout=5)
+    r = requests.get("https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt", timeout=5)
     r.raise_for_status()
     return float(r.json()["tick"]["close"])
 
 def get_wx_mid():
-    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}"
-    r = requests.get(url, timeout=5)
+    r = requests.get(f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}", timeout=5)
     r.raise_for_status()
     ob = r.json()
-    bid = float(ob["bids"][0]["price"])
-    ask = float(ob["asks"][0]["price"])
-    return (bid + ask) / 2 / 1e8
+    return (float(ob["bids"][0]["price"]) + float(ob["asks"][0]["price"])) / 2 / 1e8
 
 def get_price():
-    try:
-        return get_htx_price()
+    try: return get_htx_price()
     except Exception as e:
-        print("HTX feed failed, fallback to WX mid →", e)
+        print("HTX feed failed → fallback:", e)
         return get_wx_mid()
 
 def get_my_orders():
-    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/{PUBKEY}/active"
-    return requests.get(url).json()
+    return requests.get(f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/{PUBKEY}/active").json()
 
 def cancel_order(order_id):
     url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/cancel"
@@ -53,27 +53,21 @@ def cancel_order(order_id):
     if DRY_RUN:
         print(f"DRY RUN → Cancel {order_id}")
         return
-    r = requests.post(url, json=payload)
+    signed = sign(payload)
+    r = requests.post(url, json=signed)
     print("Cancel resp:", r.text)
 
 def cancel_all():
     try:
-        orders = get_my_orders()
-        for o in orders:
+        for o in get_my_orders():
             cancel_order(o["id"])
     except Exception as e:
         print("Cancel error:", e)
 
-def sign_order(order: dict) -> dict:
-    raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
-    sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
-    order["signature"] = base58.b58encode(sig).decode()
-    return order
-
 def place_order(amount, price, side):
     order = {
         "senderPublicKey": PUBKEY,
-        "amount": int(amount * 10**8),   # assumes 8 decimals
+        "amount": int(amount * 10**8),
         "price": int(price * 10**8),
         "orderType": side,
         "matcherFee": 300000,
@@ -85,7 +79,7 @@ def place_order(amount, price, side):
     if DRY_RUN:
         print(f"DRY RUN → {side} {amount} @ {price}")
         return
-    signed = sign_order(order)
+    signed = sign(order)
     r = requests.post(f"{MATCHER}/matcher/orderbook", json=signed)
     print("Order resp:", r.text)
 
