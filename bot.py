@@ -6,10 +6,11 @@ SEED       = os.environ["WAVES_SEED"].encode()
 NODE       = os.environ.get("WAVES_NODE", "https://nodes.wavesnodes.com")
 MATCHER    = os.environ.get("WX_MATCHER", "https://matcher.wx.network")
 
-GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 10))   # levels each side
+GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 10))
 GRID_SPACING_PCT= float(os.environ.get("GRID_SPACING_PCT", 0.35))
 ORDER_NOTIONAL  = float(os.environ.get("ORDER_NOTIONAL", 25))
 REFRESH_SEC     = int(os.environ.get("REFRESH_SEC", 20))
+DRY_RUN         = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 ASSET1 = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"
 ASSET2 = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
@@ -49,6 +50,9 @@ def get_my_orders():
 def cancel_order(order_id):
     url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/cancel"
     payload = {"orderId": order_id, "sender": PUBKEY}
+    if DRY_RUN:
+        print(f"DRY RUN → Cancel {order_id}")
+        return
     r = requests.post(url, json=payload)
     print("Cancel resp:", r.text)
 
@@ -61,7 +65,6 @@ def cancel_all():
         print("Cancel error:", e)
 
 def sign_order(order: dict) -> dict:
-    order.pop("matcherPublicKey", None)  # ensure clean
     raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
     sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
     order["signature"] = base58.b58encode(sig).decode()
@@ -70,7 +73,7 @@ def sign_order(order: dict) -> dict:
 def place_order(amount, price, side):
     order = {
         "senderPublicKey": PUBKEY,
-        "amount": int(amount * 10**8),   # assumes 8 decimals
+        "amount": int(amount * 10**8),
         "price": int(price * 10**8),
         "orderType": side,
         "matcherFee": 300000,
@@ -79,6 +82,9 @@ def place_order(amount, price, side):
         "expiration": int(time.time() * 1000) + 24*60*60*1000,
         "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
     }
+    if DRY_RUN:
+        print(f"DRY RUN → {side} {amount} @ {price}")
+        return
     signed = sign_order(order)
     r = requests.post(f"{MATCHER}/matcher/orderbook", json=signed)
     print("Order resp:", r.text)
