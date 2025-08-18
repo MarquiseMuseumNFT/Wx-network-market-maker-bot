@@ -211,7 +211,7 @@ def place_order(amount_units: float, price_quote: float, side: str):
         "amount": int(round(amount_units * 10**8)),
         "timestamp": now_ms(),
         "expiration": now_ms() + 24 * 60 * 60 * 1000,
-        "matcherFee": 300000,  # 0.003 WAVES
+        "matcherFee": 1000000,  # 0.01 WAVES
         "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,  # serialize as WAVES (0x00) by default
     }
 
