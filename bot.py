@@ -6,7 +6,7 @@ SEED       = os.environ["WAVES_SEED"].encode()
 NODE       = os.environ.get("WAVES_NODE", "https://nodes.wavesnodes.com")
 MATCHER    = os.environ.get("WX_MATCHER", "https://matcher.wx.network")
 
-GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 10))
+GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 10))   # grid levels each side
 GRID_SPACING_PCT= float(os.environ.get("GRID_SPACING_PCT", 0.35))
 ORDER_NOTIONAL  = float(os.environ.get("ORDER_NOTIONAL", 25))
 REFRESH_SEC     = int(os.environ.get("REFRESH_SEC", 20))
@@ -21,6 +21,7 @@ sk = SigningKey(seed_hash)
 pk = sk.verify_key
 PUBKEY = base58.b58encode(pk.encode()).decode()
 
+# --- Price feeds ---
 def get_htx_price():
     url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
     r = requests.get(url, timeout=5)
@@ -43,6 +44,7 @@ def get_price():
         print("HTX feed failed, fallback to WX mid →", e)
         return get_wx_mid()
 
+# --- Orders ---
 def get_my_orders():
     url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/{PUBKEY}/active"
     return requests.get(url).json()
@@ -65,6 +67,10 @@ def cancel_all():
         print("Cancel error:", e)
 
 def sign_order(order: dict) -> dict:
+    # ensure matcherPublicKey never slips in
+    if "matcherPublicKey" in order:
+        order.pop("matcherPublicKey")
+
     raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
     sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
     order["signature"] = base58.b58encode(sig).decode()
@@ -73,7 +79,7 @@ def sign_order(order: dict) -> dict:
 def place_order(amount, price, side):
     order = {
         "senderPublicKey": PUBKEY,
-        "amount": int(amount * 10**8),
+        "amount": int(amount * 10**8),   # assumes 8 decimals
         "price": int(price * 10**8),
         "orderType": side,
         "matcherFee": 300000,
@@ -89,6 +95,7 @@ def place_order(amount, price, side):
     r = requests.post(f"{MATCHER}/matcher/orderbook", json=signed)
     print("Order resp:", r.text)
 
+# --- Main loop ---
 def run():
     while True:
         try:
