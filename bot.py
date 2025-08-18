@@ -10,7 +10,7 @@ GRID_LEVELS     = int(os.environ.get("GRID_LEVELS", 6))
 GRID_SPACING_PCT= float(os.environ.get("GRID_SPACING_PCT", 0.35))
 ORDER_NOTIONAL  = float(os.environ.get("ORDER_NOTIONAL", 25))
 REFRESH_SEC     = int(os.environ.get("REFRESH_SEC", 20))
-DRY_RUN         = os.environ.get("DRY_RUN", "true").lower() == "true"
+DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 ASSET1 = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"
 ASSET2 = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
