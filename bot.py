@@ -65,6 +65,8 @@ def cancel_all():
         print("Cancel error:", e)
 
 def sign_order(order: dict) -> dict:
+    # safeguard → ensure matcherPublicKey is not included
+    order.pop("matcherPublicKey", None)
     raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
     sig = sk.sign(hashlib.blake2b(raw, digest_size=32).digest()).signature
     order["signature"] = base58.b58encode(sig).decode()
