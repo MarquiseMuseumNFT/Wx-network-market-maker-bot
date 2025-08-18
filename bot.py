@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, json, base58, hashlib, requests, struct
+import os, time, json, base58, hashlib, requests, struct, re
 from nacl.signing import SigningKey
 from nacl.hash import blake2b
 from nacl.encoding import RawEncoder
@@ -21,12 +21,16 @@ DRY_RUN          = os.environ.get("DRY_RUN", "false").lower() == "true"
 ASSET1 = os.environ.get("AMOUNT_ASSET", "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX")
 ASSET2 = os.environ.get("PRICE_ASSET",  "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
 
-# Explicitly choose fee asset (default WAVES)
+# Fee asset
 MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")
+
+# Signature mode: "fast" (blake2b256(orderBytes)) or "raw" (orderBytes directly)
+SIGN_MODE = os.environ.get("SIGN_MODE", "fast").lower().strip()  # "fast" | "raw"
 
 # ===============================
 # Keys
 # ===============================
+# Derive signing key from SEED (32-byte seed to ed25519)
 seed_hash = hashlib.blake2b(SEED, digest_size=32).digest()
 sk = SigningKey(seed_hash)
 pk = sk.verify_key
@@ -75,8 +79,22 @@ def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
     return _asset_id_bytes(amount_asset) + _asset_id_bytes(price_asset)
 
 def order_v3_bytes(order: dict) -> bytes:
+    """
+    OrderV3 bytes:
+      1  : version (0x03)
+      32 : senderPublicKey
+      32 : matcherPublicKey
+      xx : assetPair (amountAsset, priceAsset) with 0x00 or 0x01+32
+       1 : orderType (0=buy,1=sell)
+       8 : price (be)
+       8 : amount (be)
+       8 : timestamp (be)
+       8 : expiration (be)
+       8 : matcherFee (be)
+      xx : matcherFeeAssetId (0x00 or 0x01+32)
+    """
     b = bytearray()
-    b += b"\x03"  # version
+    b += b"\x03"
     b += base58.b58decode(order["senderPublicKey"])
     b += base58.b58decode(order["matcherPublicKey"])
     b += _asset_pair_bytes(order["assetPair"]["amountAsset"], order["assetPair"]["priceAsset"])
@@ -90,11 +108,23 @@ def order_v3_bytes(order: dict) -> bytes:
     b += _asset_id_bytes(fee_asset)
     return bytes(b)
 
-def sign_order_proof(order: dict) -> str:
+def sign_bytes(message: bytes, mode: str) -> bytes:
+    """
+    mode 'fast': sign blake2b256(message)
+    mode 'raw' : sign message directly
+    """
+    if mode == "fast":
+        payload = blake2b256(message)
+    elif mode == "raw":
+        payload = message
+    else:
+        raise ValueError("SIGN_MODE must be 'fast' or 'raw'")
+    return sk.sign(payload).signature
+
+def make_proofs(order: dict, mode: str) -> list[str]:
     msg = order_v3_bytes(order)
-    digest = blake2b256(msg)
-    sig = sk.sign(digest).signature
-    return base58.b58encode(sig).decode()
+    sig = sign_bytes(msg, mode)
+    return [base58.b58encode(sig).decode()]
 
 # ===============================
 # Posting / helpers
@@ -108,15 +138,17 @@ ALLOWED_ORDER_KEYS = {
 def wl(d: dict, allowed: set) -> dict:
     return {k: v for k, v in d.items() if k in allowed}
 
+INVALID_SIG_CODE = 9440512
+INVALID_SIG_RX = re.compile(r'"error"\s*:\s*%d' % INVALID_SIG_CODE)
+
 def post_order(payload: dict):
     url = f"{MATCHER}/matcher/orderbook"
-    try:
-        r = requests.post(url, json=payload, timeout=15)
-        print(f"Order resp: {r.status_code} {r.text}")
-        return r.json() if r.headers.get("Content-Type", "").startswith("application/json") else r.text
-    except Exception as e:
-        print("Order post exception:", repr(e))
-        raise
+    r = requests.post(url, json=payload, timeout=20)
+    ct = r.headers.get("Content-Type","")
+    print(f"Order resp: {r.status_code} {r.text}")
+    if r.ok and ct.startswith("application/json"):
+        return r.json()
+    return r.text
 
 # ===============================
 # Price feeds
@@ -134,14 +166,22 @@ def get_wx_mid():
     ob = r.json()
     bid = float(ob["bids"][0]["price"])
     ask = float(ob["asks"][0]["price"])
-    return (bid + ask) / 1e8
+    # NOTE: do not divide by 1e8 if you plan to submit price longs directly.
+    # We'll compute longs explicitly in place_order().
+    return (bid + ask) / 2.0
 
-def get_price():
+def get_price_long():
+    """
+    Returns a matcher-scaled price long (not human float).
+    Uses WX mid directly so decimals/scaling stay correct.
+    """
     try:
-        return get_htx_price()
+        return int(round(get_wx_mid()))
     except Exception as e:
-        print("HTX feed failed, fallback to WX mid →", e)
-        return get_wx_mid()
+        print("WX mid feed failed, fallback to HTX float →", e)
+        # Fallback path (rough): multiply by 1e8 assuming equal decimals
+        px = get_htx_price()
+        return int(round(px * 1e8))
 
 # ===============================
 # Active orders & cancellation
@@ -175,36 +215,61 @@ def cancel_all():
         print("Cancel error (listing active orders):", e)
 
 # ===============================
-# Place order (fee fixed at 0.01 WAVES)
+# Place order (auto-retry signing mode)
 # ===============================
-def place_order(amount_units: float, price_quote: float, side: str):
+def place_order(amount_units: float, price_quote_float: float | None, side: str):
+    """
+    If price_quote_float is None, we use WX mid (as long).
+    Otherwise we convert provided float -> matcher price long (roughly 1e8 multiplier).
+    """
+    if price_quote_float is None:
+        price_long = get_price_long()
+    else:
+        # Only use this path if you *know* decimals; otherwise prefer get_price_long()
+        price_long = int(round(price_quote_float * 10**8))
+
     order_core = {
         "version": 3,
         "senderPublicKey": PUBKEY,
         "matcherPublicKey": MATCHER_PUBKEY,
         "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
-        "orderType": side,
-        "price": int(round(price_quote * 10**8)),
-        "amount": int(round(amount_units * 10**8)),
+        "orderType": side,                      # "buy" or "sell"
+        "price": price_long,                    # LONG in matcher scale
+        "amount": int(round(amount_units * 10**8)),  # amount in AMOUNT_ASSET minimal units (assumes 8 decimals)
         "timestamp": now_ms(),
         "expiration": now_ms() + 24 * 60 * 60 * 1000,
-        "matcherFee": 1000000,  # ✅ 0.01 WAVES
+        "matcherFee": 1000000,                  # 0.01 WAVES
         "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
-    proof = sign_order_proof(order_core)
-    order_core["proofs"] = [proof]
-
+    # First attempt with configured SIGN_MODE
+    order_core["proofs"] = make_proofs(order_core, SIGN_MODE)
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
     print("Sending keys:", sorted(final_payload.keys()))
     print("Final payload before sending:", final_payload)
 
     if DRY_RUN:
-        print(f"DRY RUN → {side} {amount_units} @ {price_quote}")
+        print(f"DRY RUN → {side} {amount_units} @ {price_long} (long)")
         return True
 
-    return post_order(final_payload)
+    resp = requests.post(f"{MATCHER}/matcher/orderbook", json=final_payload, timeout=20)
+    print(f"Order resp: {resp.status_code} {resp.text}")
+
+    # If invalid signature, auto-retry with the other signing mode
+    if (resp.status_code == 400) and INVALID_SIG_RX.search(resp.text or ""):
+        alt_mode = "raw" if SIGN_MODE == "fast" else "fast"
+        print(f"Retrying with SIGN_MODE='{alt_mode}'")
+        order_core["proofs"] = make_proofs(order_core, alt_mode)
+        final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
+        resp = requests.post(f"{MATCHER}/matcher/orderbook", json=final_payload, timeout=20)
+        print(f"Order resp (retry): {resp.status_code} {resp.text}")
+
+    # Return JSON if available
+    ct = resp.headers.get("Content-Type","")
+    if resp.ok and ct.startswith("application/json"):
+        return resp.json()
+    return resp.text
 
 # ===============================
 # Strategy loop
@@ -213,16 +278,29 @@ def run():
     while True:
         try:
             cancel_all()
-            mid = get_price()
-            print(f"Mid price used: {mid}")
-            step = mid * (GRID_SPACING_PCT / 100.0)
+            # Use WX mid in matcher long scale so price decimals are correct
+            mid_long = get_price_long()
+            print(f"Mid (long) used: {mid_long}")
+
+            # Compute step as % of human price -> translate to long.
+            # We'll convert mid_long back to human float only to compute percentage steps.
+            # NOTE: this assumes 1e8 scale; if your pair has different decimals diff,
+            # the mid_long already includes it, but we can't infer human value.
+            # So we apply the percentage on the long directly.
+            step_long = int(round(mid_long * (GRID_SPACING_PCT / 100.0)))
+
             for i in range(1, GRID_LEVELS + 1):
-                p_buy  = mid - i * step
-                p_sell = mid + i * step
-                place_order(ORDER_NOTIONAL, p_buy,  "buy")
-                place_order(ORDER_NOTIONAL, p_sell, "sell")
+                p_buy_long  = max(1, mid_long - i * step_long)
+                p_sell_long = max(1, mid_long + i * step_long)
+                place_order(ORDER_NOTIONAL, None, "buy")   # use WX mid internally for each call
+                place_order(ORDER_NOTIONAL, None, "sell")  # ditto
+                # If you want symmetric around the captured mid, pass explicit longs:
+                # place_order(ORDER_NOTIONAL, p_buy_long / 1e8, "buy")
+                # place_order(ORDER_NOTIONAL, p_sell_long / 1e8, "sell")
+
         except Exception as e:
             print("Error in main loop:", repr(e))
+
         time.sleep(REFRESH_SEC)
 
 # ===============================
