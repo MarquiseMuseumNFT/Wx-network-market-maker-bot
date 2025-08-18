@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, json, base58, hashlib, requests
+import os, time, json, base58, hashlib, requests, struct
 from nacl.signing import SigningKey
 from nacl.hash import blake2b
 from nacl.encoding import RawEncoder
@@ -21,10 +21,13 @@ DRY_RUN          = os.environ.get("DRY_RUN", "false").lower() == "true"
 ASSET1 = os.environ.get("AMOUNT_ASSET", "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX")
 ASSET2 = os.environ.get("PRICE_ASSET",  "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
 
+# Explicitly choose fee asset (default WAVES)
+MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")  # "WAVES" or base58 asset id
+
 # ===============================
 # Keys
 # ===============================
-# Derive a deterministic signing key from SEED
+# Derive a deterministic signing key from SEED (simple hash → ed25519)
 seed_hash = hashlib.blake2b(SEED, digest_size=32).digest()
 sk = SigningKey(seed_hash)
 pk = sk.verify_key
@@ -37,55 +40,101 @@ def blake2b256(data: bytes) -> bytes:
     return blake2b(data, digest_size=32, encoder=RawEncoder)
 
 # ===============================
-# Address (for /address/... endpoints and cancel payload)
+# Address / Matcher PK
 # ===============================
 def resolve_address_from_node(pubkey_b58: str) -> str:
-    """
-    Fetch address from node for given public key to avoid manual derivation pitfalls.
-    """
     url = f"{NODE}/addresses/publicKey/{pubkey_b58}"
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
+    return r.text.strip().strip('"')
+
+def get_matcher_pk() -> str:
+    url = f"{MATCHER}/matcher"
     r = requests.get(url, timeout=10)
     r.raise_for_status()
     return r.text.strip().strip('"')
 
 try:
     ADDRESS = resolve_address_from_node(PUBKEY)
+    MATCHER_PUBKEY = get_matcher_pk()
 except Exception as e:
-    print("Failed to resolve address from node:", e)
-    # If node lookup fails, hard-stop to prevent 404 churn
+    print("Startup failure (address/matcher pk):", e)
     raise
 
 # ===============================
-# Safety / Signing helpers
+# Order v3 binary serializer
 # ===============================
-def ensure_no_matcher_pk(d: dict):
-    if "matcherPublicKey" in d:
-        raise RuntimeError("matcherPublicKey found in payload!")
+def _pack_long(x: int) -> bytes:
+    # Waves uses signed 64-bit big endian
+    return struct.pack(">q", int(x))
 
+def _asset_id_bytes(asset_id: str) -> bytes:
+    """
+    For asset references in Order/AssetPair/MatcherFeeAsset:
+    - WAVES: single byte 0x00
+    - Other asset: 0x01 + 32 bytes of assetId
+    """
+    if asset_id is None or asset_id == "" or asset_id.upper() == "WAVES":
+        return b"\x00"
+    return b"\x01" + base58.b58decode(asset_id)
+
+def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
+    return _asset_id_bytes(amount_asset) + _asset_id_bytes(price_asset)
+
+def order_v3_bytes(order: dict) -> bytes:
+    """
+    Binary layout (Order V3):
+      [0] version: 1 byte (0x03)
+      [1] senderPublicKey: 32 bytes
+      [2] matcherPublicKey: 32 bytes
+      [3] assetPair:
+            amountAsset: (0x00) or (0x01 + 32b)
+            priceAsset:  (0x00) or (0x01 + 32b)
+      [4] orderType: 1 byte (0 = BUY, 1 = SELL)
+      [5] price: int64 (be)
+      [6] amount: int64 (be)
+      [7] timestamp: int64 (be)
+      [8] expiration: int64 (be)
+      [9] matcherFee: int64 (be)
+     [10] matcherFeeAssetId: (0x00) or (0x01 + 32b)
+    """
+    b = bytearray()
+    b += b"\x03"  # version
+    b += base58.b58decode(order["senderPublicKey"])
+    b += base58.b58decode(order["matcherPublicKey"])
+    b += _asset_pair_bytes(order["assetPair"]["amountAsset"], order["assetPair"]["priceAsset"])
+    b += (b"\x00" if order["orderType"] == "buy" else b"\x01")
+    b += _pack_long(order["price"])
+    b += _pack_long(order["amount"])
+    b += _pack_long(order["timestamp"])
+    b += _pack_long(order["expiration"])
+    b += _pack_long(order["matcherFee"])
+    fee_asset = order.get("matcherFeeAssetId", "WAVES")
+    b += _asset_id_bytes(fee_asset)
+    return bytes(b)
+
+def sign_order_proof(order: dict) -> str:
+    msg = order_v3_bytes(order)
+    digest = blake2b256(msg)
+    sig = sk.sign(digest).signature
+    return base58.b58encode(sig).decode()
+
+# ===============================
+# Posting / helpers
+# ===============================
 ALLOWED_ORDER_KEYS = {
-    "senderPublicKey", "assetPair", "orderType", "amount", "price",
-    "timestamp", "expiration", "matcherFee", "version", "proofs"
+    "senderPublicKey", "matcherPublicKey", "assetPair", "orderType",
+    "amount", "price", "timestamp", "expiration", "matcherFee",
+    "version", "proofs", "matcherFeeAssetId"
 }
 
 def wl(d: dict, allowed: set) -> dict:
-    """Whitelist keys for final payload."""
     return {k: v for k, v in d.items() if k in allowed}
-
-def sign_order_proof(order: dict) -> str:
-    """
-    Local signing: we hash the compact JSON (blake2b-256) and sign the digest.
-    Proof is base58-encoded signature. We do NOT add matcherPublicKey anywhere.
-    """
-    raw = json.dumps(order, separators=(",", ":"), ensure_ascii=False).encode()
-    digest = blake2b256(raw)
-    sig = sk.sign(digest).signature
-    return base58.b58encode(sig).decode()
 
 def post_order(payload: dict):
     url = f"{MATCHER}/matcher/orderbook"
     try:
         r = requests.post(url, json=payload, timeout=15)
-        # Log both status code and text for easier debugging
         print(f"Order resp: {r.status_code} {r.text}")
         return r.json() if r.headers.get("Content-Type", "").startswith("application/json") else r.text
     except Exception as e:
@@ -108,7 +157,7 @@ def get_wx_mid():
     ob = r.json()
     bid = float(ob["bids"][0]["price"])
     ask = float(ob["asks"][0]["price"])
-    return (bid + ask) / 2 / 1e8
+    return (bid + ask) / 1e8
 
 def get_price():
     try:
@@ -119,7 +168,6 @@ def get_price():
 
 # ===============================
 # Active orders & cancellation
-# (Use address to avoid 404 on pubkey endpoint)
 # ===============================
 def get_my_orders():
     url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/address/{ADDRESS}/active"
@@ -150,33 +198,28 @@ def cancel_all():
         print("Cancel error (listing active orders):", e)
 
 # ===============================
-# >>> Place order (your corrected version, plus strict guards)
+# Place order (v3 + proper signing)
 # ===============================
 def place_order(amount_units: float, price_quote: float, side: str):
     order_core = {
-        "senderPublicKey": PUBKEY,
-        "amount": int(round(amount_units * 10**8)),
-        "price": int(round(price_quote * 10**8)),
-        "orderType": side,  # "buy" or "sell"
-        "matcherFee": 300000,
         "version": 3,
+        "senderPublicKey": PUBKEY,
+        "matcherPublicKey": MATCHER_PUBKEY,
+        "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
+        "orderType": side,  # "buy" or "sell"
+        "price": int(round(price_quote * 10**8)),
+        "amount": int(round(amount_units * 10**8)),
         "timestamp": now_ms(),
         "expiration": now_ms() + 24 * 60 * 60 * 1000,
-        "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
+        "matcherFee": 300000,  # 0.003 WAVES
+        "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,  # serialize as WAVES (0x00) by default
     }
 
-    # Ensure matcherPublicKey is not included anywhere
-    ensure_no_matcher_pk(order_core)
-
-    # Sign → proofs (list of Base58 strings)
     proof = sign_order_proof(order_core)
     order_core["proofs"] = [proof]
 
-    # Whitelist for final payload
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
-    # Final guard and debug
-    ensure_no_matcher_pk(final_payload)
     print("Sending keys:", sorted(final_payload.keys()))
     print("Final payload before sending:", final_payload)
 
