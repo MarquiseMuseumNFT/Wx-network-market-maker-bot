@@ -31,10 +31,10 @@ COPY . .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
+# Pre-install Playwright browsers
 RUN playwright install --with-deps
 
-# Set environment variables for headless Playwright in cloud
+# Set environment variables for headless Playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PYTHONUNBUFFERED=1
 
