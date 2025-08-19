@@ -4,7 +4,7 @@ import signal
 from config import settings
 from grid import build_grid, total_notional, diff_books
 from exchanges.htx import HTXMarketData
-from exchanges.wx import WXExchange
+from exchanges.wx import WXExchange  # <-- our new Playwright frontend adapter
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO),
                     format="%(asctime)s [%(levelname)s] %(message)s")
@@ -12,16 +12,20 @@ log = logging.getLogger("grid-bot")
 
 STOP = asyncio.Event()
 
+
 def handle_stop(*_):
     log.info("Shutdown signal received; stopping...")
     STOP.set()
 
+
 async def run():
+    # Market data source (HTX) + frontend execution (WX)
     md = HTXMarketData(symbol=settings.ref_symbol)
     wx = WXExchange(
         target_asset_id=settings.target_asset_id
     )
 
+    # Connect both adapters
     await wx.connect()
     await md.connect()
     log.info("Connected to adapters (WX + HTX).")
@@ -47,8 +51,15 @@ async def run():
             else:
                 last_mid = mid  # update cache
 
-            # Build grid from mid
-            grid = build_grid(mid, settings.grid_levels, settings.grid_spacing_bps, settings.order_size)
+            # Build grid from mid price
+            grid = build_grid(
+                mid,
+                settings.grid_levels,
+                settings.grid_spacing_bps,
+                settings.order_size
+            )
+
+            # Check notional exposure
             notion = total_notional(grid)
             if notion > settings.max_notional:
                 log.warning(f"Grid notional {notion:.2f} exceeds MAX_NOTIONAL {settings.max_notional}; shrinking sizes.")
@@ -80,6 +91,7 @@ async def run():
         await md.close()
         await wx.close()
         log.info("Shutdown complete.")
+
 
 if __name__ == "__main__":
     for sig in (signal.SIGINT, signal.SIGTERM):
