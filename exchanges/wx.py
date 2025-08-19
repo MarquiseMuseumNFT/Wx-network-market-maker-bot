@@ -1,57 +1,56 @@
 import asyncio
 import logging
 import os
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Error as PlaywrightError
 
 log = logging.getLogger("WXExchange")
 
 class WXExchange:
-    def __init__(self, target_asset_id: str):
+    def __init__(self, target_asset_id: str, max_retries: int = 3):
         self.target_asset_id = target_asset_id
         self.playwright = None
         self.browser = None
         self.page = None
+        self.max_retries = max_retries
 
     async def connect(self):
-        log.info("Launching Playwright (headless Firefox)...")
+        """Connect to WX and log in, retrying if Playwright/browser crashes."""
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                log.info("Launching Playwright (headless Firefox)...")
+                self.playwright = await async_playwright().start()
+                self.browser = await self.playwright.firefox.launch(headless=True)
+                self.page = await self.browser.new_page()
 
-        # Make sure Playwright uses the Docker image’s preinstalled browsers
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
+                # Navigate to WX login
+                await self.page.goto("https://wx.network/sign-in", wait_until="networkidle")
+                log.info("WX sign-in page loaded.")
 
-        self.playwright = await async_playwright().start()
+                # Grab credentials from environment
+                wallet = os.getenv("WX_WALLET")
+                password = os.getenv("WX_LOGIN_PASS")
 
-        # Debugging info
-        browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
-        log.info(f"PLAYWRIGHT_BROWSERS_PATH = {browsers_path}")
+                if not wallet or not password:
+                    raise RuntimeError("Missing WX_WALLET or WX_LOGIN_PASS in environment variables")
 
-        try:
-            self.browser = await self.playwright.firefox.launch(headless=True)
-            log.info("✅ Firefox launched successfully")
-        except Exception as e:
-            log.error(f"❌ Failed to launch Firefox: {e}")
-            raise
+                # Fill login form
+                await self.page.fill("input[type='text']", wallet)
+                await self.page.fill("input[type='password']", password)
+                await self.page.click("button[type='submit']")
 
-        self.page = await self.browser.new_page()
+                # Wait until navigation completes (success = dashboard/trading page)
+                await self.page.wait_for_load_state("networkidle")
+                log.info("WX login complete.")
+                return  # ✅ success, exit retry loop
 
-        # Navigate to WX login
-        await self.page.goto("https://wx.network/sign-in", wait_until="networkidle")
-        log.info("WX sign-in page loaded.")
+            except PlaywrightError as e:
+                retries += 1
+                log.error(f"Playwright error: {e} (retry {retries}/{self.max_retries})")
+                await self.close()
+                await asyncio.sleep(5)  # backoff before retry
 
-        # Grab credentials from environment
-        wallet = os.getenv("WX_WALLET")
-        password = os.getenv("WX_LOGIN_PASS")
-
-        if not wallet or not password:
-            raise RuntimeError("Missing WX_WALLET or WX_LOGIN_PASS in environment variables")
-
-        # Fill login form
-        await self.page.fill("input[type='text']", wallet)
-        await self.page.fill("input[type='password']", password)
-        await self.page.click("button[type='submit']")
-
-        # Wait until navigation completes
-        await self.page.wait_for_load_state("networkidle")
-        log.info("WX login complete.")
+        raise RuntimeError("Failed to connect to WX after retries.")
 
     async def list_open_orders(self):
         log.info("Fetching open orders via frontend DOM scrape...")
@@ -76,6 +75,15 @@ class WXExchange:
     async def close(self):
         log.info("Closing Playwright browser...")
         if self.browser:
-            await self.browser.close()
+            try:
+                await self.browser.close()
+            except Exception:
+                pass
         if self.playwright:
-            await self.playwright.stop()
+            try:
+                await self.playwright.stop()
+            except Exception:
+                pass
+        self.browser = None
+        self.playwright = None
+        self.page = None
