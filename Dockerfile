@@ -1,10 +1,9 @@
 # Base image
 FROM python:3.13-slim
 
-# Set working directory
 WORKDIR /opt/render/project/src
 
-# Install system dependencies for Playwright
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -30,11 +29,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 🔥 Ensure Playwright + Firefox is installed in the container (build time)
-RUN python -m playwright install --with-deps firefox
+# 🔥 Install Playwright browsers into global location, not /opt/render/.cache
+RUN python -m playwright install --with-deps firefox && \
+    python -m playwright install-deps
 
 # Copy application code
 COPY . .
 
-# Run bot
-CMD ["python", "bot.py"]
+# Default command: ensure browsers exist, then run bot
+CMD ["bash", "-c", "python -m playwright install --with-deps firefox && python bot.py"]
