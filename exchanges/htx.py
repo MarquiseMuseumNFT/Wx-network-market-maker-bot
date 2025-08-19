@@ -1,16 +1,29 @@
-import asyncio
-import json
-import websockets
-import gzip
+import requests
+import logging
 
-class HTXMarketData:
-    """Reference market data (e.g., WAVES_USDT on HTX)."""
+logger = logging.getLogger(__name__)
 
-    def __init__(self, symbol: str):
-        # HTX symbols are lowercase, no underscore, e.g. "wavesusdt"
-        self.symbol = symbol.lower().replace("_", "")
-        self._ws = None
-        self._mid = None
+class HTXExchange:
+    BASE_URL = "https://api-aws.huobi.pro"
+
+    def __init__(self, symbol="wavesusdt"):
+        self.symbol = symbol.lower()
+
+    def get_mid_price(self):
+        try:
+            url = f"{self.BASE_URL}/market/depth?symbol={self.symbol}&type=step0"
+            resp = requests.get(url, timeout=5).json()
+            bids = resp["tick"]["bids"]
+            asks = resp["tick"]["asks"]
+            if not bids or not asks:
+                return None
+            best_bid = bids[0][0]
+            best_ask = asks[0][0]
+            return (best_bid + best_ask) / 2
+        except Exception as e:
+            logger.error(f"HTX price fetch failed: {e}")
+            return None
+
 
     async def connect(self):
         # ✅ Official HTX websocket endpoint
