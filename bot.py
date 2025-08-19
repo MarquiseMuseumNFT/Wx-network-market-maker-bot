@@ -229,7 +229,6 @@ def place_order(amount_units: float, price_quote: float, side: str):
 
     return post_order(final_payload)
 
-
 # ===============================
 # Strategy loop
 # ===============================
