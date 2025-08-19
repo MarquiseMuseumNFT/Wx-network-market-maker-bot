@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os, time, json, base64, base58, hashlib, requests, struct, sys
 from nacl.signing import SigningKey
-from nacl.encoding import RawEncoder
 
 # ===============================
 # Config (via environment)
@@ -31,35 +30,29 @@ def _derive_sk_from_seed(seed_bytes: bytes) -> SigningKey:
 
 sk = _derive_sk_from_seed(SEED)
 pk = sk.verify_key
-PUBKEY_B58 = base58.b58encode(pk.encode()).decode()        # for node/matcher API
-PUBKEY_B64 = base64.b64encode(pk.encode()).decode()        # for signing proofs
+PUBKEY_B58 = base58.b58encode(pk.encode()).decode()  # for matcher API
+PUBKEY_B64 = base64.b64encode(pk.encode()).decode()  # for signing proofs
 
 def now_ms() -> int:
     return int(time.time() * 1000)
 
 # ===============================
-# Address / Matcher PK
+# Hardcoded address
 # ===============================
-def resolve_address_from_node(pubkey_b58: str) -> str:
-    url = f"{NODE}/addresses/publicKey/{pubkey_b58}"
-    r = requests.get(url, timeout=10)
-    r.raise_for_status()
-    return r.text.strip().strip('"')
+ADDRESS = "3PFYpLMMQBDBecjHxb18zaWPy4N52anweGn"
+print("Using address:", ADDRESS)
 
+# ===============================
+# Get matcher public key
+# ===============================
 def get_matcher_pk() -> str:
     url = f"{MATCHER}/matcher"
     r = requests.get(url, timeout=10)
     r.raise_for_status()
     return r.text.strip().strip('"')
 
-try:
-    ADDRESS = resolve_address_from_node(PUBKEY_B58)
-    MATCHER_PUBKEY = get_matcher_pk()
-    print("Using address:", ADDRESS)
-    print("Matcher pubkey:", MATCHER_PUBKEY)
-except Exception as e:
-    print("Startup failure (address/matcher pk):", e, file=sys.stderr)
-    raise
+MATCHER_PUBKEY = get_matcher_pk()
+print("Matcher pubkey:", MATCHER_PUBKEY)
 
 # ===============================
 # Order v3 binary serializer
@@ -68,7 +61,7 @@ def _pack_long(x: int) -> bytes:
     return struct.pack(">q", int(x))
 
 def _asset_id_bytes(asset_id: str) -> bytes:
-    if asset_id is None or asset_id == "" or asset_id.upper() == "WAVES":
+    if not asset_id or asset_id.upper() == "WAVES":
         return b"\x00"
     return b"\x01" + base58.b58decode(asset_id)
 
@@ -92,7 +85,6 @@ def order_v3_bytes(order: dict) -> bytes:
     return bytes(b)
 
 def sign_order_proof_base64(order: dict) -> str:
-    """Sign order and return base64-encoded proof."""
     msg = order_v3_bytes(order)
     sig = sk.sign(msg).signature
     return base64.b64encode(sig).decode()
@@ -119,31 +111,6 @@ def post_order(payload: dict):
     except Exception as e:
         print("Order post exception:", repr(e))
         raise
-
-# ===============================
-# Price feeds
-# ===============================
-def get_htx_price():
-    url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
-    r = requests.get(url, timeout=8)
-    r.raise_for_status()
-    return float(r.json()["tick"]["close"])
-
-def get_wx_mid():
-    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}"
-    r = requests.get(url, timeout=8)
-    r.raise_for_status()
-    ob = r.json()
-    bid = float(ob["bids"][0]["price"])
-    ask = float(ob["asks"][0]["price"])
-    return (bid + ask) / 1e8
-
-def get_price():
-    try:
-        return get_htx_price()
-    except Exception as e:
-        print("HTX feed failed, fallback to WX mid →", e)
-        return get_wx_mid()
 
 # ===============================
 # Asset decimals
@@ -227,6 +194,31 @@ def place_order(amount_units: float, price_quote: float, side: str):
         return False
 
     return post_order(final_payload)
+
+# ===============================
+# Price feeds
+# ===============================
+def get_htx_price():
+    url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
+    r = requests.get(url, timeout=8)
+    r.raise_for_status()
+    return float(r.json()["tick"]["close"])
+
+def get_wx_mid():
+    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}"
+    r = requests.get(url, timeout=8)
+    r.raise_for_status()
+    ob = r.json()
+    bid = float(ob["bids"][0]["price"])
+    ask = float(ob["asks"][0]["price"])
+    return (bid + ask) / 2e8
+
+def get_price():
+    try:
+        return get_htx_price()
+    except Exception as e:
+        print("HTX feed failed, fallback to WX mid →", e)
+        return get_wx_mid()
 
 # ===============================
 # Strategy loop
