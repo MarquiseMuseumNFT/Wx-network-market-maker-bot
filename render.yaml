@@ -3,9 +3,11 @@ services:
     name: wx-bot
     env: docker
     plan: free
+    buildCommand: ""   # Dockerfile handles everything
+    startCommand: ""   # CMD from Dockerfile will be used
     dockerfilePath: ./Dockerfile
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: /ms-playwright
+      - key: NODE_ENV
+        value: "production"
