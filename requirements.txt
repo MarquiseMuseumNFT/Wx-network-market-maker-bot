@@ -8,4 +8,5 @@ base58
 pynacl
 asyncio
 greenlet>=3.0.3
+playwright>=1.46.0
 
