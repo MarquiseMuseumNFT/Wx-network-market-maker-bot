@@ -5,7 +5,7 @@ class Settings(BaseModel):
     bot_env: str = Field(default=os.getenv("BOT_ENV", "dev"))
     log_level: str = Field(default=os.getenv("LOG_LEVEL", "INFO"))
 
-    ref_symbol: str = Field(default=os.getenv("REF_SYMBOL", "WAVES_USDT"))
+    ref_symbol: str = Field(default=os.getenv("REF_SYMBOL", "WAVES-USDT"))
     target_asset_id: str = Field(default=os.getenv("TARGET_ASSET_ID", ""))  # WX pair/asset id
 
     grid_levels: int = Field(default=int(os.getenv("GRID_LEVELS", "10")))
