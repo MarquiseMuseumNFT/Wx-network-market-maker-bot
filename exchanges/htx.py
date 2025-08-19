@@ -51,13 +51,13 @@ class HTXMarketData:
 
     async def connect(self):
         """
-        Connect to HTX websocket and subscribe to ticker feed.
+        Connect to HTX websocket and subscribe to depth feed.
         """
         self._ws = await websockets.connect("wss://api.huobi.pro/ws")
-        sub_msg = {"sub": f"market.{self.symbol}.ticker", "id": "1"}
+        sub_msg = {"sub": f"market.{self.symbol}.depth.step0", "id": "1"}
         await self._ws.send(json.dumps(sub_msg))
         asyncio.create_task(self._reader())
-        logger.info(f"Subscribed to HTX ticker for {self.symbol}")
+        logger.info(f"Subscribed to HTX depth feed for {self.symbol}")
 
     async def _reader(self):
         """
@@ -78,13 +78,12 @@ class HTXMarketData:
 
                 if "tick" in data:
                     tick = data["tick"]
-                    # HTX provides bid/ask as floats, not arrays
-                    bid = tick.get("bid")
-                    ask = tick.get("ask")
-                    if bid and ask:
-                        self._mid = (float(bid) + float(ask)) / 2.0
-
-                    logger.debug(f"HTX tick: bid={bid}, ask={ask}, mid={self._mid}")
+                    bids = tick.get("bids", [])
+                    asks = tick.get("asks", [])
+                    if bids and asks:
+                        best_bid = bids[0][0]
+                        best_ask = asks[0][0]
+                        self._mid = (float(best_bid) + float(best_ask)) / 2.0
             except Exception as e:
                 logger.error(f"HTX WS reader error: {e}")
                 await asyncio.sleep(1)
