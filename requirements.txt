@@ -5,4 +5,4 @@ aiohttp
 python-dotenv
 httpx
 base58
-pynac1
+pynacl
