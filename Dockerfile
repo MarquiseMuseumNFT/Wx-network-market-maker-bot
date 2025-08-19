@@ -1,27 +1,36 @@
-# Use Python 3.11 (greenlet compatible)
-FROM python:3.11-slim
+FROM python:3.13-slim
 
-# Install system dependencies needed by Playwright
+# Install system dependencies for Playwright + Firefox
 RUN apt-get update && apt-get install -y \
-    wget gnupg ca-certificates curl unzip fonts-liberation \
-    libasound2 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-    libdbus-1-3 libdrm2 libxkbcommon0 libxcomposite1 \
-    libxdamage1 libxfixes3 libxrandr2 libgbm1 libgtk-3-0 \
-    libnss3 libxss1 libxtst6 libxshmfence1 xvfb \
+    wget \
+    gnupg \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libgtk-3-0 \
+    libxshmfence1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies
+# Copy requirements first (better layer caching)
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright and Firefox browser
-RUN pip install playwright && playwright install --with-deps firefox
+# Install Playwright + Firefox
+RUN playwright install --with-deps firefox
 
 # Copy project files
 COPY . .
 
-# Run bot
 CMD ["python", "bot.py"]
