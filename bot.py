@@ -154,10 +154,17 @@ def cancel_order(order_id):
 def cancel_all():
     try:
         orders = get_my_orders()
+        if not orders:
+            print("No active orders to cancel")
+            return
         for o in orders:
             cancel_order(o["id"])
-    except Exception as e:
-        print("Cancel error (listing active orders):", e)
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            print("No active orders to cancel")
+        else:
+            print("Cancel error (listing active orders):", e)
+
 
 # ===============================
 # Place order (with decimals fix)
