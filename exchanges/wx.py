@@ -1,109 +1,98 @@
 import aiohttp
+import asyncio
 import logging
-from grid import GridOrder
 
-logger = logging.getLogger("wx")
+log = logging.getLogger("wx")
 
 class WXExchange:
-    """
-    WX Exchange spot trading adapter (no matcher).
-    Works with unlisted tokens by using raw spot API.
-    """
-
-    BASE_URL = "https://wx.network/api/v1"
-
-    def __init__(self, target_asset_id, seed, private_key, public_key, wallet, login_pass):
+    def __init__(self, target_asset_id, seed, private_key, public_key,
+                 wallet, login_pass, base_url="https://api.wx.network/api"):
+        self.base_url = base_url.rstrip("/")
         self.target_asset_id = target_asset_id
         self.seed = seed
         self.private_key = private_key
         self.public_key = public_key
         self.wallet = wallet
         self.login_pass = login_pass
-        self.session = None
-
-        # Hardcode asset pair IDs for Saureus/Splatinum
-        self.base_asset = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"   # Saureus
-        self.quote_asset = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"   # Splatinum
+        self.api_token = None
+        self.session: aiohttp.ClientSession | None = None
 
     async def connect(self):
-        self.session = aiohttp.ClientSession()
-        logger.info("Connected to WX API session")
+        """Authenticate and create session with Authorization header."""
+        async with aiohttp.ClientSession() as s:
+            resp = await s.post(
+                f"{self.base_url}/v1/auth/session",
+                json={"login": self.wallet, "password": self.login_pass},
+            )
+            data = await resp.json()
+            if "token" not in data:
+                raise Exception(f"Auth failed: {data}")
+            self.api_token = data["token"]
+
+        self.session = aiohttp.ClientSession(
+            headers={"Authorization": f"Bearer {self.api_token}"}
+        )
+        log.info("Connected to WX API session")
 
     async def close(self):
         if self.session:
             await self.session.close()
-            self.session = None
-            logger.info("Closed WX session")
 
     async def list_open_orders(self):
-        """
-        Get open orders for this trading pair.
-        """
-        url = f"{self.BASE_URL}/trades/{self.base_asset}/{self.quote_asset}/orders/active"
+        """Fetch open orders."""
         try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    txt = await resp.text()
-                    logger.error(f"list_open_orders error {resp.status}: {txt}")
+            async with self.session.get(f"{self.base_url}/v1/orders") as r:
+                data = await r.json()
+                if r.status != 200:
+                    log.error(f"list_open_orders error {r.status}: {data}")
                     return []
-                data = await resp.json()
-                # Convert to GridOrder-like dicts
-                return [
-                    GridOrder(price=float(o["price"]),
-                              size=float(o["amount"]),
-                              side=o["side"])
-                    for o in data.get("data", [])
-                ]
+                return data.get("orders", [])
         except Exception as e:
-            logger.error(f"list_open_orders exception: {e}")
+            log.error(f"list_open_orders exception: {e}")
             return []
 
-    async def cancel_orders(self, orders):
-        """
-        Cancel multiple orders by IDs.
-        """
-        for order in orders:
-            try:
-                url = f"{self.BASE_URL}/order/cancel/{order.id}"
-                async with self.session.post(url) as resp:
-                    if resp.status != 200:
-                        txt = await resp.text()
-                        logger.error(f"Cancel failed {resp.status}: {txt}")
-                    else:
-                        logger.info(f"Cancelled order {order.id}")
-            except Exception as e:
-                logger.error(f"Cancel order error: {e}")
+    async def place_orders(self, orders):
+        """Place multiple limit orders."""
+        payload = []
+        for o in orders:
+            side = "BUY" if o.side.lower() == "buy" else "SELL"
+            payload.append({
+                "symbol": self.target_asset_id,
+                "side": side,
+                "price": str(o.price),
+                "quantity": str(o.size),
+                "type": "LIMIT",
+                "timeInForce": "GTC"
+            })
+
+        try:
+            async with self.session.post(f"{self.base_url}/v1/orders/batch", json=payload) as r:
+                data = await r.json()
+                if r.status != 200:
+                    log.error(f"Place order failed {r.status}: {data}")
+                return data
+        except Exception as e:
+            log.error(f"place_orders exception: {e}")
+            return None
+
+    async def cancel_orders(self, order_ids):
+        """Cancel multiple orders."""
+        try:
+            async with self.session.post(
+                f"{self.base_url}/v1/orders/cancel",
+                json={"orderIds": order_ids},
+            ) as r:
+                data = await r.json()
+                if r.status != 200:
+                    log.error(f"cancel_orders failed {r.status}: {data}")
+                return data
+        except Exception as e:
+            log.error(f"cancel_orders exception: {e}")
+            return None
 
     async def cancel_all(self):
-        """
-        Cancel ALL open orders.
-        """
-        current = await self.list_open_orders()
-        await self.cancel_orders(current)
-
-    async def place_orders(self, orders):
-        """
-        Place multiple GridOrders.
-        """
-        url = f"{self.BASE_URL}/order"
-        placed = 0
-        for o in orders:
-            payload = {
-                "amount": str(o.size),
-                "price": str(o.price),
-                "side": o.side,
-                "baseAsset": self.base_asset,
-                "quoteAsset": self.quote_asset,
-                "orderType": "limit"
-            }
-            try:
-                async with self.session.post(url, json=payload) as resp:
-                    txt = await resp.text()
-                    if resp.status != 200:
-                        logger.error(f"Place order failed {resp.status}: {txt}")
-                    else:
-                        logger.info(f"Placed order {o.side} {o.size}@{o.price}")
-                        placed += 1
-            except Exception as e:
-                logger.error(f"place_orders error: {e}")
-        return placed
+        """Cancel all active orders."""
+        orders = await self.list_open_orders()
+        ids = [o["id"] for o in orders]
+        if ids:
+            await self.cancel_orders(ids)
