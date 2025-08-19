@@ -10,7 +10,7 @@ class Settings(BaseModel):
 
     grid_levels: int = Field(default=int(os.getenv("GRID_LEVELS", "10")))
     grid_spacing_bps: float = Field(default=float(os.getenv("GRID_SPACING_BPS", "50")))
-    order_size: float = Field(default=float(os.getenv("ORDER_SIZE", "1")))
+    order_size: float = Field(default=float(os.getenv("ORDER_SIZE", "5")))
     max_notional: float = Field(default=float(os.getenv("MAX_NOTIONAL", "500")))
     refresh_seconds: int = Field(default=int(os.getenv("REFRESH_SECONDS", "15")))
     cancel_on_exit: bool = Field(default=os.getenv("CANCEL_ON_EXIT", "true").lower() == "true")
