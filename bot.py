@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, json, base58, hashlib, requests, struct, sys
+import os, time, json, base64, base58, hashlib, requests, struct, sys
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
 
@@ -18,7 +18,6 @@ DRY_RUN          = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 ASSET1 = os.environ.get("AMOUNT_ASSET", "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX")
 ASSET2 = os.environ.get("PRICE_ASSET",  "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
-
 MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")
 
 # ===============================
@@ -62,13 +61,13 @@ except Exception as e:
     raise
 
 # ===============================
-# Order v3 canonical serializer
+# Order v3 binary serializer
 # ===============================
 def _pack_long(x: int) -> bytes:
     return struct.pack(">q", int(x))
 
 def _asset_id_bytes(asset_id: str) -> bytes:
-    if not asset_id or asset_id.upper() == "WAVES":
+    if asset_id is None or asset_id == "" or asset_id.upper() == "WAVES":
         return b"\x00"
     return b"\x01" + base58.b58decode(asset_id)
 
@@ -77,23 +76,25 @@ def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
 
 def order_v3_bytes(order: dict) -> bytes:
     b = bytearray()
-    b += b"\x03"  # version
+    b += b"\x03"
     b += base58.b58decode(order["senderPublicKey"])
     b += base58.b58decode(order["matcherPublicKey"])
     b += _asset_pair_bytes(order["assetPair"]["amountAsset"], order["assetPair"]["priceAsset"])
-    b += b"\x00" if order["orderType"] == "buy" else b"\x01"
+    b += (b"\x00" if order["orderType"] == "buy" else b"\x01")
     b += _pack_long(order["price"])
     b += _pack_long(order["amount"])
     b += _pack_long(order["timestamp"])
     b += _pack_long(order["expiration"])
     b += _pack_long(order["matcherFee"])
-    b += _asset_id_bytes(order.get("matcherFeeAssetId", "WAVES"))
+    fee_asset = order.get("matcherFeeAssetId", "WAVES")
+    b += _asset_id_bytes(fee_asset)
     return bytes(b)
 
-def sign_order_proof(order: dict) -> str:
+def sign_order_proof_base64(order: dict) -> str:
+    """Sign order and return base64-encoded proof."""
     msg = order_v3_bytes(order)
     sig = sk.sign(msg).signature
-    return base58.b58encode(sig).decode()
+    return base64.b64encode(sig).decode()
 
 # ===============================
 # Posting / helpers
@@ -156,7 +157,6 @@ def get_asset_decimals(asset_id: str) -> int:
 
 AMOUNT_DECIMALS = get_asset_decimals(ASSET1)
 PRICE_DECIMALS  = get_asset_decimals(ASSET2)
-
 print(f"Decimals: amount={AMOUNT_DECIMALS}, price={PRICE_DECIMALS}")
 
 # ===============================
@@ -212,13 +212,13 @@ def place_order(amount_units: float, price_quote: float, side: str):
         "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
-    proof = sign_order_proof(order_core)
-    order_core["proofs"] = [proof]
+    proof_b64 = sign_order_proof_base64(order_core)
+    order_core["proofs"] = [proof_b64]
 
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
     if DRY_RUN:
-        print(f"DRY RUN → {side} {amount_units} @ {price_quote}")
+        print(f"DRY RUN → {side} {amount_units} @ {price_quote} | Proof b64: {proof_b64}")
         return True
 
     return post_order(final_payload)
