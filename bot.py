@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, json, base64, base58, hashlib, requests, struct, sys
+import os, time, json, base58, hashlib, requests, struct
 from nacl.signing import SigningKey
 
 # ===============================
@@ -30,8 +30,7 @@ def _derive_sk_from_seed(seed_bytes: bytes) -> SigningKey:
 
 sk = _derive_sk_from_seed(SEED)
 pk = sk.verify_key
-PUBKEY_B58 = base58.b58encode(pk.encode()).decode()  # for matcher API
-PUBKEY_B64 = base64.b64encode(pk.encode()).decode()  # for signing proofs
+PUBKEY_B58 = base58.b58encode(pk.encode()).decode()
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -84,10 +83,10 @@ def order_v3_bytes(order: dict) -> bytes:
     b += _asset_id_bytes(fee_asset)
     return bytes(b)
 
-def sign_order_proof_base64(order: dict) -> str:
+def sign_order_proof_b58(order: dict) -> str:
     msg = order_v3_bytes(order)
     sig = sk.sign(msg).signature
-    return base64.b64encode(sig).decode()
+    return base58.b58encode(sig).decode()
 
 # ===============================
 # Posting / helpers
@@ -165,7 +164,6 @@ def cancel_all():
         else:
             print("Cancel error (listing active orders):", e)
 
-
 # ===============================
 # Place order (with decimals fix)
 # ===============================
@@ -188,8 +186,8 @@ def place_order(amount_units: float, price_quote: float, side: str):
     }
 
     try:
-        proof_b64 = sign_order_proof_base64(order_core)
-        order_core["proofs"] = [proof_b64]
+        proof_b58 = sign_order_proof_b58(order_core)
+        order_core["proofs"] = [proof_b58]
     except Exception as e:
         print("Error generating proof:", e)
         return None
@@ -197,7 +195,7 @@ def place_order(amount_units: float, price_quote: float, side: str):
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
     if DRY_RUN:
-        print(f"DRY RUN → {side} {amount_units} @ {price_quote} | Proof b64: {proof_b64}")
+        print(f"DRY RUN → {side} {amount_units} @ {price_quote} | Proof b58: {proof_b58}")
         return False
 
     return post_order(final_payload)
