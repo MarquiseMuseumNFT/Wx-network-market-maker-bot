@@ -1,104 +1,44 @@
 import requests
-import json
-import websockets
-import gzip
-import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-class HTXExchange:
-    """
-    Simple REST client for HTX (Huobi) depth snapshots.
-    Useful for quick price checks.
-    """
-
+class HTXMarketData:
     BASE_URL = "https://api-aws.huobi.pro"
 
-    def __init__(self, symbol="wavesusdt"):
-        self.symbol = symbol.lower()
+    def __init__(self, symbol: str):
+        # Example input: "waves-usdt" → "wavesusdt"
+        self.symbol = symbol.lower().replace("-", "")
 
-    def get_mid_price(self):
-        """
-        Fetch order book snapshot and calculate mid price.
-        """
+    async def connect(self):
+        logger.info(f"[HTX] Using REST polling for {self.symbol}")
+
+    async def mid_price(self):
         try:
             url = f"{self.BASE_URL}/market/depth?symbol={self.symbol}&type=step0"
             resp = requests.get(url, timeout=5).json()
+
+            if "tick" not in resp or "bids" not in resp["tick"] or "asks" not in resp["tick"]:
+                logger.warning(f"[HTX] No order book data for {self.symbol}")
+                return None
+
             bids = resp["tick"]["bids"]
             asks = resp["tick"]["asks"]
+
             if not bids or not asks:
+                logger.warning(f"[HTX] Empty bids/asks for {self.symbol}")
                 return None
-            best_bid = bids[0][0]
-            best_ask = asks[0][0]
-            return (best_bid + best_ask) / 2
+
+            best_bid = float(bids[0][0])
+            best_ask = float(asks[0][0])
+            mid = (best_bid + best_ask) / 2.0
+            logger.debug(f"[HTX] Mid price for {self.symbol}: {mid}")
+            return mid
+
         except Exception as e:
-            logger.error(f"HTX REST price fetch failed: {e}")
+            logger.error(f"[HTX] REST fetch failed for {self.symbol}: {e}")
             return None
 
-
-class HTXMarketData:
-    """
-    Realtime market data (mid price) from HTX WebSocket.
-    """
-
-    def __init__(self, symbol: str):
-        # HTX uses lowercase + no underscore (e.g. "wavesusdt")
-        self.symbol = symbol.lower().replace("_", "")
-        self._ws = None
-        self._mid = None
-
-    async def connect(self):
-        """
-        Connect to HTX websocket and subscribe to depth feed.
-        """
-        self._ws = await websockets.connect("wss://api.huobi.pro/ws")
-        # subscribe to depth instead of ticker
-        sub_msg = {"sub": f"market.{self.symbol}.depth.step0", "id": "1"}
-        await self._ws.send(json.dumps(sub_msg))
-        asyncio.create_task(self._reader())
-        logger.info(f"Subscribed to HTX depth feed for {self.symbol}")
-
-    async def _reader(self):
-        """
-        Internal: read WS messages and update mid price.
-        """
-        while True:
-            try:
-                raw = await self._ws.recv()
-                if isinstance(raw, bytes):
-                    msg = gzip.decompress(raw).decode("utf-8")
-                else:
-                    msg = raw
-                data = json.loads(msg)
-
-                if "ping" in data:
-                    await self._ws.send(json.dumps({"pong": data["ping"]}))
-                    continue
-
-                if "tick" in data:
-                    tick = data["tick"]
-                    bids = tick.get("bids", [])
-                    asks = tick.get("asks", [])
-                    if bids and asks:
-                        best_bid = float(bids[0][0])
-                        best_ask = float(asks[0][0])
-                        self._mid = (best_bid + best_ask) / 2.0
-            except Exception as e:
-                logger.error(f"HTX WS reader error: {e}")
-                await asyncio.sleep(1)
-
-    async def mid_price(self):
-        """
-        Return the latest mid price (or None if not yet available).
-        """
-        return self._mid
-
     async def close(self):
-        """
-        Close websocket connection.
-        """
-        if self._ws:
-            await self._ws.close()
-            self._ws = None
+        logger.info("[HTX] REST adapter closed")
+        pass
