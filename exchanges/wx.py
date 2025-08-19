@@ -1,58 +1,46 @@
 import aiohttp
-import asyncio
 import logging
+import os
 
 log = logging.getLogger("wx")
 
 class WXExchange:
-    def __init__(self, target_asset_id, seed, private_key, public_key,
-                 wallet, login_pass, base_url="https://api.wx.network/api"):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, target_asset_id: str):
+        self.base_url = "https://api.wx.network/api/v1"
         self.target_asset_id = target_asset_id
-        self.seed = seed
-        self.private_key = private_key
-        self.public_key = public_key
-        self.wallet = wallet
-        self.login_pass = login_pass
-        self.api_token = None
+        self.api_token = os.getenv("WX_API_KEY")  # set this in Render env vars
         self.session: aiohttp.ClientSession | None = None
 
     async def connect(self):
-        """Authenticate and create session with Authorization header."""
-        async with aiohttp.ClientSession() as s:
-            resp = await s.post(
-                f"{self.base_url}/v1/auth/session",
-                json={"login": self.wallet, "password": self.login_pass},
-            )
-            data = await resp.json()
-            if "token" not in data:
-                raise Exception(f"Auth failed: {data}")
-            self.api_token = data["token"]
+        """Attach Authorization header with existing JWT (no login)."""
+        if not self.api_token:
+            raise Exception("Missing WX_API_KEY (JWT token) in env vars")
 
         self.session = aiohttp.ClientSession(
             headers={"Authorization": f"Bearer {self.api_token}"}
         )
-        log.info("Connected to WX API session")
+        log.info("Connected to WX API session with provided token")
 
     async def close(self):
         if self.session:
             await self.session.close()
 
     async def list_open_orders(self):
-        """Fetch open orders."""
+        """Fetch open orders for current market."""
         try:
-            async with self.session.get(f"{self.base_url}/v1/orders") as r:
-                data = await r.json()
+            async with self.session.get(f"{self.base_url}/orders/active") as r:
+                text = await r.text()
                 if r.status != 200:
-                    log.error(f"list_open_orders error {r.status}: {data}")
+                    log.error(f"list_open_orders error {r.status}: {text}")
                     return []
+                data = await r.json()
                 return data.get("orders", [])
         except Exception as e:
             log.error(f"list_open_orders exception: {e}")
             return []
 
     async def place_orders(self, orders):
-        """Place multiple limit orders."""
+        """Place multiple limit orders on this market."""
         payload = []
         for o in orders:
             side = "BUY" if o.side.lower() == "buy" else "SELL"
@@ -66,32 +54,32 @@ class WXExchange:
             })
 
         try:
-            async with self.session.post(f"{self.base_url}/v1/orders/batch", json=payload) as r:
-                data = await r.json()
+            async with self.session.post(f"{self.base_url}/orders/batch", json=payload) as r:
+                text = await r.text()
                 if r.status != 200:
-                    log.error(f"Place order failed {r.status}: {data}")
-                return data
+                    log.error(f"Place order failed {r.status}: {text}")
+                return await r.json()
         except Exception as e:
             log.error(f"place_orders exception: {e}")
             return None
 
     async def cancel_orders(self, order_ids):
-        """Cancel multiple orders."""
+        """Cancel multiple orders by IDs."""
         try:
             async with self.session.post(
-                f"{self.base_url}/v1/orders/cancel",
+                f"{self.base_url}/orders/cancel",
                 json={"orderIds": order_ids},
             ) as r:
-                data = await r.json()
+                text = await r.text()
                 if r.status != 200:
-                    log.error(f"cancel_orders failed {r.status}: {data}")
-                return data
+                    log.error(f"cancel_orders failed {r.status}: {text}")
+                return await r.json()
         except Exception as e:
             log.error(f"cancel_orders exception: {e}")
             return None
 
     async def cancel_all(self):
-        """Cancel all active orders."""
+        """Cancel all open orders."""
         orders = await self.list_open_orders()
         ids = [o["id"] for o in orders]
         if ids:
