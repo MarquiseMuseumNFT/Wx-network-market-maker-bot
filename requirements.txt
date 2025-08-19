@@ -6,3 +6,4 @@ python-dotenv
 httpx
 base58
 pynacl
+playwright
