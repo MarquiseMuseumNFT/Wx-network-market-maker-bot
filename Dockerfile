@@ -1,13 +1,19 @@
-# Use official Playwright image with browsers already installed
+# Base image with Python & Playwright dependencies
 FROM mcr.microsoft.com/playwright/python:v1.47.0-focal
 
+# Set workdir
 WORKDIR /opt/render/project/src
 
-# Copy requirements & install deps
+# Copy dependency list
 COPY requirements.txt .
+
+# Install Python deps
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
+# Install Firefox (headless) and system deps
+RUN playwright install --with-deps firefox
+
+# Copy bot code
 COPY . .
 
 # Run the bot
