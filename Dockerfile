@@ -1,39 +1,26 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
-# Install system dependencies for Playwright
+# Install system dependencies required for browsers
 RUN apt-get update && apt-get install -y \
-    wget \
-    curl \
-    libnss3 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxi6 \
-    libxtst6 \
-    libglib2.0-0 \
-    libdrm2 \
-    libgbm1 \
-    libxrandr2 \
-    libasound2 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libpangocairo-1.0-0 \
-    libcups2 \
-    libxss1 \
-    libgtk-3-0 \
+    wget unzip curl gnupg ca-certificates \
+    fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxrandr2 libxdamage1 \
+    libxfixes3 libxshmfence1 libasound2 libatspi2.0-0 libwayland-client0 \
+    libwayland-egl1 libwayland-cursor0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set workdir
 WORKDIR /app
-COPY . .
 
-# Install Python dependencies
+# Copy deps and install
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright and Firefox browser
-RUN pip install playwright && playwright install firefox
+# Install Playwright browsers (only Firefox)
+RUN playwright install --with-deps firefox
 
-# Run bot
+# Copy source code
+COPY . .
+
+# Start bot
 CMD ["python", "bot.py"]
