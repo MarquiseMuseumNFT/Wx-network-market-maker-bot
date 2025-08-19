@@ -78,10 +78,13 @@ class HTXMarketData:
 
                 if "tick" in data:
                     tick = data["tick"]
-                    bid = tick.get("bid", [None])[0]
-                    ask = tick.get("ask", [None])[0]
+                    # HTX provides bid/ask as floats, not arrays
+                    bid = tick.get("bid")
+                    ask = tick.get("ask")
                     if bid and ask:
                         self._mid = (float(bid) + float(ask)) / 2.0
+
+                    logger.debug(f"HTX tick: bid={bid}, ask={ask}, mid={self._mid}")
             except Exception as e:
                 logger.error(f"HTX WS reader error: {e}")
                 await asyncio.sleep(1)
