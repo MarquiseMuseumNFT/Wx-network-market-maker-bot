@@ -62,13 +62,13 @@ except Exception as e:
     raise
 
 # ===============================
-# Order v3 binary serializer
+# Order v3 canonical serializer
 # ===============================
 def _pack_long(x: int) -> bytes:
     return struct.pack(">q", int(x))
 
 def _asset_id_bytes(asset_id: str) -> bytes:
-    if asset_id is None or asset_id == "" or asset_id.upper() == "WAVES":
+    if not asset_id or asset_id.upper() == "WAVES":
         return b"\x00"
     return b"\x01" + base58.b58decode(asset_id)
 
@@ -77,18 +77,17 @@ def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
 
 def order_v3_bytes(order: dict) -> bytes:
     b = bytearray()
-    b += b"\x03"
+    b += b"\x03"  # version
     b += base58.b58decode(order["senderPublicKey"])
     b += base58.b58decode(order["matcherPublicKey"])
     b += _asset_pair_bytes(order["assetPair"]["amountAsset"], order["assetPair"]["priceAsset"])
-    b += (b"\x00" if order["orderType"] == "buy" else b"\x01")
+    b += b"\x00" if order["orderType"] == "buy" else b"\x01"
     b += _pack_long(order["price"])
     b += _pack_long(order["amount"])
     b += _pack_long(order["timestamp"])
     b += _pack_long(order["expiration"])
     b += _pack_long(order["matcherFee"])
-    fee_asset = order.get("matcherFeeAssetId", "WAVES")
-    b += _asset_id_bytes(fee_asset)
+    b += _asset_id_bytes(order.get("matcherFeeAssetId", "WAVES"))
     return bytes(b)
 
 def sign_order_proof(order: dict) -> str:
