@@ -6,5 +6,5 @@ python-dotenv
 httpx
 base58
 pynacl
-playwright==1.47.0
 asyncio
+greenlet==3.0.3
