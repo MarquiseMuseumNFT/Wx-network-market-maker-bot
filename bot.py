@@ -3,29 +3,32 @@ import time
 import struct
 import base58
 import requests
-from nacl.signing import SigningKey
 from hashlib import blake2b
+from nacl.signing import SigningKey
 
 # ------------------------
 # CONFIG
 # ------------------------
-NODE_URL = "https://nodes.wavesnodes.com"
-MATCHER_URL = "https://matcher.waves.exchange"
+NODE_URL = os.getenv("WAVES_NODE", "https://nodes.wavesnodes.com")
+MATCHER_URL = os.getenv("WX_MATCHER", "https://matcher.waves.exchange")
 
+# Seed phrase from environment
 SENDER_SEED = os.getenv("WAVES_SEED")
 if not SENDER_SEED:
     raise ValueError("Please set WAVES_SEED in environment variables!")
 
 # Derive 32-byte private key from seed phrase
-seed_bytes = SENDER_SEED.encode('utf-8')
+seed_bytes = SENDER_SEED.encode("utf-8")
 private_key_bytes = blake2b(seed_bytes, digest_size=32).digest()
 SENDER_KEY = SigningKey(private_key_bytes)
 SENDER_PUBLIC_KEY = base58.b58encode(SENDER_KEY.verify_key.encode()).decode()
 
+# Matcher public key
 MATCHER_PUBLIC_KEY = os.getenv("MATCHER_PUBLIC_KEY")
 if not MATCHER_PUBLIC_KEY:
     raise ValueError("Please set MATCHER_PUBLIC_KEY in environment variables!")
 
+# Assets
 AMOUNT_ASSET = os.getenv("AMOUNT_ASSET")  # None or asset ID
 PRICE_ASSET = os.getenv("PRICE_ASSET")    # None or asset ID
 
@@ -108,11 +111,11 @@ def main():
             "priceAsset": PRICE_ASSET
         },
         "orderType": "buy",
-        "amount": 100000000,  # 1 WAVES
-        "price": 150000000,   # 1.5 WAVES price
+        "amount": 100_000_000,  # 1 WAVES
+        "price": 150_000_000,   # 1.5 WAVES
         "timestamp": timestamp,
-        "expiration": timestamp + 24 * 60 * 60 * 1000,
-        "matcherFee": 1000000,
+        "expiration": timestamp + 24 * 60 * 60 * 1000,  # 24h
+        "matcherFee": 1_000_000,
         "matcherFeeAssetId": "WAVES"
     }
 
