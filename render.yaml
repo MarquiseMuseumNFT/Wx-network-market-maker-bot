@@ -21,7 +21,11 @@ services:
       - key: REFRESH_SECONDS
         value: "15"
 
-      # 🔒 Secrets (set via Render Dashboard, not in repo)
+      # Default browser choice for Playwright (safe for Render)
+      - key: PLAYWRIGHT_BROWSER
+        value: chromium
+
+      # 🔒 Secrets (set via Render Dashboard, not stored in repo)
       - key: WX_SEED
         sync: false
       - key: WX_PRIVATE_KEY
