@@ -115,9 +115,12 @@ def order_v3_bytes(order: dict) -> bytes:
 
 def sign_order_proof(order: dict) -> str:
     msg = order_v3_bytes(order)
+    print("Serialized order bytes:", msg)  # Log serialized order bytes
     digest = blake2b256(msg)
     sig = sk.sign(digest).signature
+    print("Generated signature:", base58.b58encode(sig).decode())  # Log generated signature
     return base58.b58encode(sig).decode()
+
 
 # ===============================
 # Posting / helpers
