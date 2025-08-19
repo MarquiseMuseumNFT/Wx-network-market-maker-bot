@@ -1,14 +1,16 @@
-# Use official Playwright image with browsers already installed
-FROM mcr.microsoft.com/playwright/python:v1.47.0-focal
+FROM python:3.11-slim
 
-WORKDIR /opt/render/project/src
+# Install system dependencies for Playwright + Chromium
+RUN apt-get update && apt-get install -y curl unzip fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements & install deps (skip playwright, already in base image)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy source code
+WORKDIR /app
 COPY . .
 
-# Run the bot
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Chromium only (lighter & avoids Firefox missing binary errors)
+RUN npx playwright install --with-deps chromium
+
 CMD ["python", "bot.py"]
