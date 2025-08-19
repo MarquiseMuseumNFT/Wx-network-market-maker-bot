@@ -32,7 +32,6 @@ seed_hash = hashlib.blake2b(SEED, digest_size=32).digest()
 sk = SigningKey(seed_hash)
 pk = sk.verify_key
 # PUBKEY = base58.b58encode(pk.encode()).decode()  # original
-PUBKEY = "FMsyqteKGhaU5c5HUnfdLJzjEvVdgHdjAwrBjpAxaQmU"  # override sender
 
 def now_ms() -> int:
     return int(time.time() * 1000)
