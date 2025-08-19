@@ -54,6 +54,7 @@ class HTXMarketData:
         Connect to HTX websocket and subscribe to depth feed.
         """
         self._ws = await websockets.connect("wss://api.huobi.pro/ws")
+        # subscribe to depth instead of ticker
         sub_msg = {"sub": f"market.{self.symbol}.depth.step0", "id": "1"}
         await self._ws.send(json.dumps(sub_msg))
         asyncio.create_task(self._reader())
@@ -81,9 +82,9 @@ class HTXMarketData:
                     bids = tick.get("bids", [])
                     asks = tick.get("asks", [])
                     if bids and asks:
-                        best_bid = bids[0][0]
-                        best_ask = asks[0][0]
-                        self._mid = (float(best_bid) + float(best_ask)) / 2.0
+                        best_bid = float(bids[0][0])
+                        best_ask = float(asks[0][0])
+                        self._mid = (best_bid + best_ask) / 2.0
             except Exception as e:
                 logger.error(f"HTX WS reader error: {e}")
                 await asyncio.sleep(1)
