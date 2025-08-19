@@ -19,12 +19,7 @@ def handle_stop(*_):
 async def run():
     md = HTXMarketData(symbol=settings.ref_symbol)
     wx = WXExchange(
-        target_asset_id=settings.target_asset_id,
-        seed=settings.wx_seed,
-        private_key=settings.wx_private_key,
-        public_key=settings.wx_public_key,
-        wallet=settings.wx_wallet,
-        login_pass=settings.wx_login_pass,
+        target_asset_id=settings.target_asset_id
     )
 
     await wx.connect()
