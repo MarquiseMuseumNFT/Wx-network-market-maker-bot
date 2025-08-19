@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, json, base58, hashlib, requests, struct
+import os, time, json, base64, base58, hashlib, requests, struct
 from nacl.signing import SigningKey
 
 # ===============================
@@ -30,23 +30,19 @@ def _derive_sk_from_seed(seed_bytes: bytes) -> SigningKey:
 
 sk = _derive_sk_from_seed(SEED)
 pk = sk.verify_key
-PUBKEY_B58 = base58.b58encode(pk.encode()).decode()
+PUBKEY_B58 = base58.b58encode(pk.encode()).decode()  # for matcher API
 
 def now_ms() -> int:
     return int(time.time() * 1000)
 
-# ===============================
-# Hardcoded address
-# ===============================
 ADDRESS = "3PFYpLMMQBDBecjHxb18zaWPy4N52anweGn"
 print("Using address:", ADDRESS)
 
 # ===============================
-# Get matcher public key
+# Matcher public key
 # ===============================
 def get_matcher_pk() -> str:
-    url = f"{MATCHER}/matcher"
-    r = requests.get(url, timeout=10)
+    r = requests.get(f"{MATCHER}/matcher", timeout=10)
     r.raise_for_status()
     return r.text.strip().strip('"')
 
@@ -54,7 +50,7 @@ MATCHER_PUBKEY = get_matcher_pk()
 print("Matcher pubkey:", MATCHER_PUBKEY)
 
 # ===============================
-# Order v3 binary serializer
+# Order serialization & signing
 # ===============================
 def _pack_long(x: int) -> bytes:
     return struct.pack(">q", int(x))
@@ -64,33 +60,30 @@ def _asset_id_bytes(asset_id: str) -> bytes:
         return b"\x00"
     return b"\x01" + base58.b58decode(asset_id)
 
-def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
-    return _asset_id_bytes(amount_asset) + _asset_id_bytes(price_asset)
-
 def order_v3_bytes(order: dict) -> bytes:
     b = bytearray()
     b += b"\x03"
     b += base58.b58decode(order["senderPublicKey"])
     b += base58.b58decode(order["matcherPublicKey"])
-    b += _asset_pair_bytes(order["assetPair"]["amountAsset"], order["assetPair"]["priceAsset"])
-    b += (b"\x00" if order["orderType"] == "buy" else b"\x01")
+    b += _asset_id_bytes(order["assetPair"]["amountAsset"])
+    b += _asset_id_bytes(order["assetPair"]["priceAsset"])
+    b += b"\x00" if order["orderType"] == "buy" else b"\x01"
     b += _pack_long(order["price"])
     b += _pack_long(order["amount"])
     b += _pack_long(order["timestamp"])
     b += _pack_long(order["expiration"])
     b += _pack_long(order["matcherFee"])
-    fee_asset = order.get("matcherFeeAssetId", "WAVES")
-    b += _asset_id_bytes(fee_asset)
+    if order.get("matcherFeeAssetId"):
+        b += _asset_id_bytes(order["matcherFeeAssetId"])
+    else:
+        b += b"\x00"
     return bytes(b)
 
-def sign_order_proof_b58(order: dict) -> str:
+def sign_order_b58(order: dict) -> str:
     msg = order_v3_bytes(order)
     sig = sk.sign(msg).signature
     return base58.b58encode(sig).decode()
 
-# ===============================
-# Posting / helpers
-# ===============================
 ALLOWED_ORDER_KEYS = {
     "senderPublicKey", "matcherPublicKey", "assetPair", "orderType",
     "amount", "price", "timestamp", "expiration", "matcherFee",
@@ -100,6 +93,9 @@ ALLOWED_ORDER_KEYS = {
 def wl(d: dict, allowed: set) -> dict:
     return {k: v for k, v in d.items() if k in allowed}
 
+# ===============================
+# Post order
+# ===============================
 def post_order(payload: dict):
     url = f"{MATCHER}/matcher/orderbook"
     try:
@@ -117,8 +113,7 @@ def post_order(payload: dict):
 def get_asset_decimals(asset_id: str) -> int:
     if asset_id.upper() == "WAVES":
         return 8
-    url = f"{NODE}/assets/details/{asset_id}"
-    r = requests.get(url, timeout=10)
+    r = requests.get(f"{NODE}/assets/details/{asset_id}", timeout=10)
     r.raise_for_status()
     return int(r.json()["decimals"])
 
@@ -127,28 +122,21 @@ PRICE_DECIMALS  = get_asset_decimals(ASSET2)
 print(f"Decimals: amount={AMOUNT_DECIMALS}, price={PRICE_DECIMALS}")
 
 # ===============================
-# Active orders & cancellation
+# Orders management
 # ===============================
 def get_my_orders():
-    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/address/{ADDRESS}/active"
-    r = requests.get(url, timeout=10)
+    r = requests.get(f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/address/{ADDRESS}/active", timeout=10)
     r.raise_for_status()
     return r.json()
 
 def cancel_order(order_id):
-    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/cancel"
     payload = {"orderId": order_id, "sender": ADDRESS}
     if DRY_RUN:
         print(f"DRY RUN → Cancel {order_id}")
         return True
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        print("Cancel resp:", r.status_code, r.text)
-        ctype = r.headers.get("Content-Type", "")
-        return r.json() if "application/json" in ctype else r.text
-    except Exception as e:
-        print("Cancel error:", repr(e))
-        return None
+    r = requests.post(f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}/cancel", json=payload, timeout=10)
+    print("Cancel resp:", r.status_code, r.text)
+    return r.json()
 
 def cancel_all():
     try:
@@ -162,10 +150,10 @@ def cancel_all():
         if e.response.status_code == 404:
             print("No active orders to cancel")
         else:
-            print("Cancel error (listing active orders):", e)
+            print("Cancel error:", e)
 
 # ===============================
-# Place order (with decimals fix)
+# Place order
 # ===============================
 def place_order(amount_units: float, price_quote: float, side: str):
     amount = int(round(amount_units * 10**AMOUNT_DECIMALS))
@@ -182,15 +170,13 @@ def place_order(amount_units: float, price_quote: float, side: str):
         "timestamp": now_ms(),
         "expiration": now_ms() + 24 * 60 * 60 * 1000,
         "matcherFee": 1000000,
-        "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
-    try:
-        proof_b58 = sign_order_proof_b58(order_core)
-        order_core["proofs"] = [proof_b58]
-    except Exception as e:
-        print("Error generating proof:", e)
-        return None
+    if MATCHER_FEE_ASSET_ID.upper() != "WAVES":
+        order_core["matcherFeeAssetId"] = MATCHER_FEE_ASSET_ID
+
+    proof_b58 = sign_order_b58(order_core)
+    order_core["proofs"] = [proof_b58]
 
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
@@ -204,14 +190,12 @@ def place_order(amount_units: float, price_quote: float, side: str):
 # Price feeds
 # ===============================
 def get_htx_price():
-    url = "https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt"
-    r = requests.get(url, timeout=8)
+    r = requests.get("https://api-aws.huobi.pro/market/detail/merged?symbol=wavesusdt", timeout=8)
     r.raise_for_status()
     return float(r.json()["tick"]["close"])
 
 def get_wx_mid():
-    url = f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}"
-    r = requests.get(url, timeout=8)
+    r = requests.get(f"{MATCHER}/matcher/orderbook/{ASSET1}/{ASSET2}", timeout=8)
     r.raise_for_status()
     ob = r.json()
     bid = float(ob["bids"][0]["price"])
@@ -239,16 +223,12 @@ def run():
             for i in range(1, GRID_LEVELS + 1):
                 p_buy  = mid - i * step
                 p_sell = mid + i * step
-                place_order(ORDER_NOTIONAL, p_buy,  "buy")
+                place_order(ORDER_NOTIONAL, p_buy, "buy")
                 place_order(ORDER_NOTIONAL, p_sell, "sell")
 
         except Exception as e:
-            print("Error in main loop:", repr(e))
-
+            print("Main loop exception:", e)
         time.sleep(REFRESH_SEC)
 
-# ===============================
-# Entry
-# ===============================
 if __name__ == "__main__":
     run()
