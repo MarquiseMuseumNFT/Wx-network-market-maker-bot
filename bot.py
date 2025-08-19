@@ -212,19 +212,23 @@ def place_order(amount_units: float, price_quote: float, side: str):
         "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
-    # Log the order data for debugging
-    print("Order data before signing:", json.dumps(order_core, indent=2))
-
-    proof_b64 = sign_order_proof_base64(order_core)
-    order_core["proofs"] = [proof_b64]
+    try:
+        proof_b64 = sign_order_proof_base64(order_core)
+        order_core["proofs"] = [proof_b64]
+    except Exception as e:
+        print("Error generating proof:", e)
+        order_core["proofs"] = []  # Ensure proofs field is present
 
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
+
+    print("Final payload for order:", final_payload)  # Log the payload
 
     if DRY_RUN:
         print(f"DRY RUN → {side} {amount_units} @ {price_quote} | Proof b64: {proof_b64}")
         return True
 
     return post_order(final_payload)
+
 
 # ===============================
 # Strategy loop
