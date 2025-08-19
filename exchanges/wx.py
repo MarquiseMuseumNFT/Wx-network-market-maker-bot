@@ -1,86 +1,84 @@
-import aiohttp
+import asyncio
 import logging
-import os
+from playwright.async_api import async_playwright
 
-log = logging.getLogger("wx")
+log = logging.getLogger("WX")
 
 class WXExchange:
-    def __init__(self, target_asset_id: str):
-        self.base_url = "https://api.wx.network/api/v1"
+    def __init__(self, target_asset_id):
         self.target_asset_id = target_asset_id
-        self.api_token = os.getenv("WX_API_KEY")  # set this in Render env vars
-        self.session: aiohttp.ClientSession | None = None
+        self.browser = None
+        self.page = None
 
     async def connect(self):
-        """Attach Authorization header with existing JWT (no login)."""
-        if not self.api_token:
-            raise Exception("Missing WX_API_KEY (JWT token) in env vars")
+        log.info("Starting Playwright browser for WX frontend...")
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=True)
+        self.page = await self.browser.new_page()
 
-        self.session = aiohttp.ClientSession(
-            headers={"Authorization": f"Bearer {self.api_token}"}
-        )
-        log.info("Connected to WX API session with provided token")
+        # Go to WX sign-in
+        await self.page.goto("https://wx.network/sign-in/")
 
-    async def close(self):
-        if self.session:
-            await self.session.close()
+        # Click Software login
+        await self.page.click("text=Software")
+
+        # ⚠️ TODO: securely load your SEED/KEY from settings
+        await self.page.fill("textarea", "YOUR_SEED_OR_KEY")
+        await self.page.click("text=Log In")
+
+        log.info("Logged into WX frontend.")
 
     async def list_open_orders(self):
-        """Fetch open orders for current market."""
+        # Example: scrape DOM for order table
         try:
-            async with self.session.get(f"{self.base_url}/orders/active") as r:
-                text = await r.text()
-                if r.status != 200:
-                    log.error(f"list_open_orders error {r.status}: {text}")
-                    return []
-                data = await r.json()
-                return data.get("orders", [])
+            await self.page.goto("https://wx.network/trading")
+            rows = await self.page.query_selector_all("div.order-row")  # adjust selector
+            orders = []
+            for r in rows:
+                txt = await r.inner_text()
+                orders.append({"info": txt})
+            return orders
         except Exception as e:
-            log.error(f"list_open_orders exception: {e}")
+            log.error(f"list_open_orders error: {e}")
             return []
 
-    async def place_orders(self, orders):
-        """Place multiple limit orders on this market."""
-        payload = []
-        for o in orders:
-            side = "BUY" if o.side.lower() == "buy" else "SELL"
-            payload.append({
-                "symbol": self.target_asset_id,
-                "side": side,
-                "price": str(o.price),
-                "quantity": str(o.size),
-                "type": "LIMIT",
-                "timeInForce": "GTC"
-            })
+    async def place_orders(self, creates):
+        for o in creates:
+            try:
+                log.info(f"Placing order {o.side} {o.size} @ {o.price}")
+                await self.page.fill("input[placeholder='Price']", str(o.price))
+                await self.page.fill("input[placeholder='Amount']", str(o.size))
+                if o.side == "buy":
+                    await self.page.click("text=Buy")
+                else:
+                    await self.page.click("text=Sell")
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                log.error(f"Place order failed: {e}")
 
-        try:
-            async with self.session.post(f"{self.base_url}/orders/batch", json=payload) as r:
-                text = await r.text()
-                if r.status != 200:
-                    log.error(f"Place order failed {r.status}: {text}")
-                return await r.json()
-        except Exception as e:
-            log.error(f"place_orders exception: {e}")
-            return None
-
-    async def cancel_orders(self, order_ids):
-        """Cancel multiple orders by IDs."""
-        try:
-            async with self.session.post(
-                f"{self.base_url}/orders/cancel",
-                json={"orderIds": order_ids},
-            ) as r:
-                text = await r.text()
-                if r.status != 200:
-                    log.error(f"cancel_orders failed {r.status}: {text}")
-                return await r.json()
-        except Exception as e:
-            log.error(f"cancel_orders exception: {e}")
-            return None
+    async def cancel_orders(self, cancels):
+        for c in cancels:
+            try:
+                # Click cancel button for each order
+                btn = await self.page.query_selector(f"text={c.id}")
+                if btn:
+                    await btn.click()
+                    log.info(f"Cancelled {c.id}")
+                    await asyncio.sleep(0.5)
+            except Exception as e:
+                log.error(f"Cancel failed: {e}")
 
     async def cancel_all(self):
-        """Cancel all open orders."""
-        orders = await self.list_open_orders()
-        ids = [o["id"] for o in orders]
-        if ids:
-            await self.cancel_orders(ids)
+        try:
+            cancel_btns = await self.page.query_selector_all("text=Cancel")
+            for b in cancel_btns:
+                await b.click()
+                await asyncio.sleep(0.3)
+        except Exception as e:
+            log.error(f"Cancel_all failed: {e}")
+
+    async def close(self):
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
