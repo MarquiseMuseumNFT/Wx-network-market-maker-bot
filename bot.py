@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, json, base64, base58, hashlib, requests, struct, sys
+import os, time, json, base64, hashlib, requests, struct, sys
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
 
@@ -31,7 +31,7 @@ def _derive_sk_from_seed(seed_bytes: bytes) -> SigningKey:
 
 sk = _derive_sk_from_seed(SEED)
 pk = sk.verify_key
-PUBKEY = base58.b58encode(pk.encode()).decode()
+PUBKEY_B64 = base64.b64encode(pk.encode()).decode()
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -52,10 +52,10 @@ def get_matcher_pk() -> str:
     return r.text.strip().strip('"')
 
 try:
-    ADDRESS = resolve_address_from_node(PUBKEY)
-    MATCHER_PUBKEY = get_matcher_pk()
+    ADDRESS = resolve_address_from_node(base64.b64decode(PUBKEY_B64))
+    MATCHER_PUBKEY_B64 = base64.b64encode(base58.b58decode(get_matcher_pk())).decode()
     print("Using address:", ADDRESS)
-    print("Matcher pubkey:", MATCHER_PUBKEY)
+    print("Matcher pubkey (Base64):", MATCHER_PUBKEY_B64)
 except Exception as e:
     print("Startup failure (address/matcher pk):", e, file=sys.stderr)
     raise
@@ -77,8 +77,8 @@ def _asset_pair_bytes(amount_asset: str, price_asset: str) -> bytes:
 def order_v3_bytes(order: dict) -> bytes:
     b = bytearray()
     b += b"\x03"
-    b += base58.b58decode(order["senderPublicKey"])
-    b += base58.b58decode(order["matcherPublicKey"])
+    b += base64.b64decode(order["senderPublicKey"])
+    b += base64.b64decode(order["matcherPublicKey"])
     b += _asset_pair_bytes(order["assetPair"]["amountAsset"], order["assetPair"]["priceAsset"])
     b += (b"\x00" if order["orderType"] == "buy" else b"\x01")
     b += _pack_long(order["price"])
@@ -109,6 +109,10 @@ def wl(d: dict, allowed: set) -> dict:
     return {k: v for k, v in d.items() if k in allowed}
 
 def post_order(payload: dict):
+    # Convert Base64 keys back to Base58 for the matcher
+    payload = payload.copy()
+    payload["senderPublicKey"] = base58.b58encode(base64.b64decode(payload["senderPublicKey"])).decode()
+    payload["matcherPublicKey"] = base58.b58encode(base64.b64decode(payload["matcherPublicKey"])).decode()
     url = f"{MATCHER}/matcher/orderbook"
     try:
         r = requests.post(url, json=payload, timeout=15)
@@ -195,14 +199,13 @@ def cancel_all():
 # Place order (with decimals fix)
 # ===============================
 def place_order(amount_units: float, price_quote: float, side: str):
-def place_order(amount_units: float, price_quote: float, side: str):
     amount = int(round(amount_units * 10**AMOUNT_DECIMALS))
     price  = int(round(price_quote * 10**(8 + PRICE_DECIMALS - AMOUNT_DECIMALS)))
 
     order_core = {
         "version": 3,
-        "senderPublicKey": PUBKEY,
-        "matcherPublicKey": MATCHER_PUBKEY,
+        "senderPublicKey": PUBKEY_B64,
+        "matcherPublicKey": MATCHER_PUBKEY_B64,
         "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
         "orderType": side,
         "price": price,
@@ -218,11 +221,11 @@ def place_order(amount_units: float, price_quote: float, side: str):
         order_core["proofs"] = [proof_b64]
     except Exception as e:
         print("Error generating proof:", e)
-        return None  # Return None to indicate failure
+        return None
 
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
-    print("Final payload for order:", final_payload)  # Log the payload
+    print("Final payload for order:", final_payload)
 
     if DRY_RUN:
         print(f"DRY RUN → {side} {amount_units} @ {price_quote} | Proof b64: {proof_b64}")
