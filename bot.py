@@ -17,7 +17,6 @@ def handle_stop(*_):
     STOP.set()
 
 async def run():
-    # Instantiate adapters
     md = HTXMarketData(symbol=settings.ref_symbol)
     wx = WXExchange(
         target_asset_id=settings.target_asset_id,
@@ -32,6 +31,8 @@ async def run():
     await md.connect()
     log.info("Connected to adapters (WX + HTX).")
 
+    last_mid = None  # cache last known mid price
+
     try:
         while not STOP.is_set():
             try:
@@ -41,11 +42,17 @@ async def run():
                 mid = None
 
             if mid is None:
-                log.warning("No mid price yet; retrying...")
-                await asyncio.sleep(1)
-                continue
+                if last_mid is not None:
+                    log.warning("HTX feed failed; reusing last known mid price.")
+                    mid = last_mid
+                else:
+                    log.warning("No mid price yet; retrying...")
+                    await asyncio.sleep(1)
+                    continue
+            else:
+                last_mid = mid  # update cache
 
-            # Build grid from HTX mid
+            # Build grid from mid
             grid = build_grid(mid, settings.grid_levels, settings.grid_spacing_bps, settings.order_size)
             notion = total_notional(grid)
             if notion > settings.max_notional:
@@ -54,7 +61,7 @@ async def run():
                 for g in grid:
                     g.size *= scale
 
-            # Fetch current orders and diff
+            # Diff current vs target orders
             current = await wx.list_open_orders()
             cancels, creates = diff_books(current, grid)
 
