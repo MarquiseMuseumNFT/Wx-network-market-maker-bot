@@ -1,82 +1,99 @@
 import aiohttp
-import asyncio
 import logging
+import asyncio
 
-log = logging.getLogger("wx-exchange")
+logger = logging.getLogger(__name__)
 
-# Saureus (waves mimic)
-SAUREUS_ASSET_ID = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"
-# Splatinum (usdt mimic)
-SPLATINUM_ASSET_ID = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
-
-WX_NODE = "https://nodes.wavesnodes.com"
-WX_MATCHER = "https://matcher.waves.exchange"
+BASE_URL = "https://api.wx.network/v1"
 
 class WXExchange:
-    def __init__(self, target_asset_id, seed, private_key, public_key, wallet, login_pass):
+    """
+    Minimal WX REST adapter (no matcher).
+    Uses spot trading endpoints for custom asset pairs (e.g. Saureus/Splatinum).
+    """
+
+    def __init__(self, target_asset_id: str, seed=None, private_key=None, public_key=None,
+                 wallet=None, login_pass=None):
         self.target_asset_id = target_asset_id
-        self.seed = seed
-        self.private_key = private_key
-        self.public_key = public_key
-        self.wallet = wallet
-        self.login_pass = login_pass
-        self.session: aiohttp.ClientSession | None = None
-        self.base_asset = SAUREUS_ASSET_ID
-        self.quote_asset = SPLATINUM_ASSET_ID
+        self.base_asset_id = "WAVES"  # Saureus mimic is Waves
+        self.quote_asset_id = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # Splatinum mimic of USDT
+        self.session = None
 
     async def connect(self):
-        if self.session is None:
-            self.session = aiohttp.ClientSession()
-            log.info("Connected to WX API session")
+        self.session = aiohttp.ClientSession()
+        logger.info("Connected to WX API session")
 
     async def close(self):
         if self.session:
             await self.session.close()
-            self.session = None
-            log.info("Closed WX API session")
+            logger.info("Closed WX API session")
 
     async def list_open_orders(self):
-        url = f"{WX_MATCHER}/matcher/orderbook/{self.base_asset}/{self.quote_asset}/publicKey/{self.public_key}"
-        async with self.session.get(url) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                log.error(f"list_open_orders error {resp.status}: {text}")
-                return []
-            data = await resp.json()
-            return data.get("orders", [])
+        """
+        Fetch open orders for this pair.
+        """
+        url = f"{BASE_URL}/orderbook/{self.target_asset_id}/{self.quote_asset_id}/public"
+        try:
+            async with self.session.get(url) as resp:
+                if resp.status != 200:
+                    txt = await resp.text()
+                    logger.error(f"list_open_orders error {resp.status}: {txt}")
+                    return []
+                data = await resp.json()
+                return data.get("orders", [])
+        except Exception as e:
+            logger.error(f"list_open_orders exception: {e}")
+            return []
 
     async def cancel_orders(self, orders):
-        for order in orders:
-            order_id = order.get("id")
-            if not order_id:
-                continue
-            url = f"{WX_MATCHER}/matcher/orderbook/{self.base_asset}/{self.quote_asset}/cancel"
-            payload = {"orderId": order_id, "sender": self.public_key}
-            async with self.session.post(url, json=payload) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    log.error(f"Cancel order {order_id} failed {resp.status}: {text}")
-                else:
-                    log.info(f"Cancelled order {order_id}")
+        """
+        Cancel specific orders.
+        """
+        results = []
+        for o in orders:
+            try:
+                url = f"{BASE_URL}/orderbook/{self.target_asset_id}/{self.quote_asset_id}/cancel"
+                payload = {"orderId": o.id}
+                async with self.session.post(url, json=payload) as resp:
+                    if resp.status != 200:
+                        txt = await resp.text()
+                        logger.error(f"Cancel order {o.id} failed {resp.status}: {txt}")
+                    else:
+                        results.append(await resp.json())
+            except Exception as e:
+                logger.error(f"Cancel order {o.id} exception: {e}")
+        return results
 
     async def cancel_all(self):
+        """
+        Cancel all open orders.
+        """
         current = await self.list_open_orders()
-        await self.cancel_orders(current)
+        if not current:
+            return []
+        return await self.cancel_orders(current)
 
     async def place_orders(self, orders):
-        for g in orders:
-            url = f"{WX_MATCHER}/matcher/orderbook"
-            payload = {
-                "amountAsset": self.base_asset,
-                "priceAsset": self.quote_asset,
-                "orderType": "buy" if g.side == "buy" else "sell",
-                "price": int(g.price * 10**6),  # assuming 6 decimals
-                "amount": int(g.size * 10**6),
-                "sender": self.public_key,
-            }
-            async with self.session.post(url, json=payload) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    log.error(f"Place order failed {resp.status}: {text}")
-                else:
-                    log.info(f"Placed {g.side} {g.size}@{g.price}")
+        """
+        Place multiple grid orders via WX spot API.
+        orders: list of GridOrder(price, size, side)
+        """
+        results = []
+        for o in orders:
+            try:
+                url = f"{BASE_URL}/orderbook/{self.target_asset_id}/{self.quote_asset_id}/place"
+                payload = {
+                    "orderType": "buy" if o.side == "buy" else "sell",
+                    "amount": int(o.size * 1e8),  # convert to satoshis
+                    "price": int(o.price * 1e8),  # convert to satoshis
+                    "matcherFeeAssetId": "WAVES",
+                }
+                async with self.session.post(url, json=payload) as resp:
+                    if resp.status != 200:
+                        txt = await resp.text()
+                        logger.error(f"Place order failed {resp.status}: {txt}")
+                    else:
+                        results.append(await resp.json())
+            except Exception as e:
+                logger.error(f"place_orders exception: {e}")
+        return results
