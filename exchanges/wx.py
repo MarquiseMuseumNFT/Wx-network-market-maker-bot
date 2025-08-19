@@ -14,8 +14,23 @@ class WXExchange:
 
     async def connect(self):
         log.info("Launching Playwright (headless Firefox)...")
+
+        # Make sure Playwright uses the Docker image’s preinstalled browsers
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
+
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.firefox.launch(headless=True)
+
+        # Debugging info
+        browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+        log.info(f"PLAYWRIGHT_BROWSERS_PATH = {browsers_path}")
+
+        try:
+            self.browser = await self.playwright.firefox.launch(headless=True)
+            log.info("✅ Firefox launched successfully")
+        except Exception as e:
+            log.error(f"❌ Failed to launch Firefox: {e}")
+            raise
+
         self.page = await self.browser.new_page()
 
         # Navigate to WX login
@@ -29,18 +44,17 @@ class WXExchange:
         if not wallet or not password:
             raise RuntimeError("Missing WX_WALLET or WX_LOGIN_PASS in environment variables")
 
-        # Fill login form (selectors may need adjusting if WX updates frontend)
+        # Fill login form
         await self.page.fill("input[type='text']", wallet)
         await self.page.fill("input[type='password']", password)
         await self.page.click("button[type='submit']")
 
-        # Wait until navigation completes (success = dashboard/trading page)
+        # Wait until navigation completes
         await self.page.wait_for_load_state("networkidle")
         log.info("WX login complete.")
 
     async def list_open_orders(self):
         log.info("Fetching open orders via frontend DOM scrape...")
-        # Example stub: scrape order rows
         orders = await self.page.query_selector_all(".orders-table-row")
         return [await o.inner_text() for o in orders]
 
