@@ -53,6 +53,18 @@ if PUBKEY != derived_pubkey:
     print("Env PUBKEY:", PUBKEY, file=sys.stderr)
     sys.exit(3)
 
+
+pk = sk.verify_key
+derived_pubkey = base58.b58encode(pk.encode()).decode()
+PUBKEY = os.environ.get("PUBKEY", derived_pubkey)
+
+# Safety check: prevent mismatched key usage
+if PUBKEY != derived_pubkey:
+    print("ERROR: PUBKEY does not match the private key / seed-derived public key.", file=sys.stderr)
+    print("Derived:", derived_pubkey, file=sys.stderr)
+    print("Env PUBKEY:", PUBKEY, file=sys.stderr)
+    sys.exit(3)
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
