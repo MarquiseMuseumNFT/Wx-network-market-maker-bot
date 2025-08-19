@@ -195,6 +195,7 @@ def cancel_all():
 # Place order (with decimals fix)
 # ===============================
 def place_order(amount_units: float, price_quote: float, side: str):
+def place_order(amount_units: float, price_quote: float, side: str):
     amount = int(round(amount_units * 10**AMOUNT_DECIMALS))
     price  = int(round(price_quote * 10**(8 + PRICE_DECIMALS - AMOUNT_DECIMALS)))
 
@@ -217,7 +218,7 @@ def place_order(amount_units: float, price_quote: float, side: str):
         order_core["proofs"] = [proof_b64]
     except Exception as e:
         print("Error generating proof:", e)
-        order_core["proofs"] = []  # Ensure proofs field is present
+        return None  # Return None to indicate failure
 
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
 
