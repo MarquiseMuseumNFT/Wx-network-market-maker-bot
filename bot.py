@@ -4,6 +4,7 @@ import struct
 import base58
 import requests
 from nacl.signing import SigningKey
+from hashlib import blake2b
 
 # ------------------------
 # CONFIG
@@ -15,7 +16,10 @@ SENDER_SEED = os.getenv("WAVES_SEED")
 if not SENDER_SEED:
     raise ValueError("Please set WAVES_SEED in environment variables!")
 
-SENDER_KEY = SigningKey(base58.b58decode(SENDER_SEED))
+# Derive 32-byte private key from seed phrase
+seed_bytes = SENDER_SEED.encode('utf-8')
+private_key_bytes = blake2b(seed_bytes, digest_size=32).digest()
+SENDER_KEY = SigningKey(private_key_bytes)
 SENDER_PUBLIC_KEY = base58.b58encode(SENDER_KEY.verify_key.encode()).decode()
 
 MATCHER_PUBLIC_KEY = os.getenv("MATCHER_PUBLIC_KEY")
