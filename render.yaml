@@ -1,13 +1,34 @@
 services:
-  - type: web
-    name: wx-bot
+  - type: worker
+    name: grid-bot
     env: docker
     plan: free
-    buildCommand: ""   # Dockerfile handles everything
-    startCommand: ""   # CMD from Dockerfile will be used
     dockerfilePath: ./Dockerfile
+    autoDeploy: true
     envVars:
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: NODE_ENV
-        value: "production"
+      - key: REF_SYMBOL
+        value: WAVES_USDT
+      - key: TARGET_ASSET_ID
+        value: "PUT_YOUR_WX_ASSET_ID_HERE"
+      - key: GRID_LEVELS
+        value: "10"
+      - key: GRID_SPACING_BPS
+        value: "50"
+      - key: ORDER_SIZE
+        value: "5"
+      - key: MAX_NOTIONAL
+        value: "500"
+      - key: REFRESH_SECONDS
+        value: "15"
+
+      # 🔒 Secrets (set via Render Dashboard, not in repo)
+      - key: WX_SEED
+        sync: false
+      - key: WX_PRIVATE_KEY
+        sync: false
+      - key: WX_PUBLIC_KEY
+        sync: false
+      - key: WX_WALLET
+        sync: false
+      - key: WX_LOGIN_PASS
+        sync: false
