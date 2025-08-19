@@ -212,6 +212,9 @@ def place_order(amount_units: float, price_quote: float, side: str):
         "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
+    # Log the order data for debugging
+    print("Order data before signing:", json.dumps(order_core, indent=2))
+
     proof_b64 = sign_order_proof_base64(order_core)
     order_core["proofs"] = [proof_b64]
 
