@@ -3,10 +3,7 @@ FROM mcr.microsoft.com/playwright/python:v1.47.0-focal
 
 WORKDIR /opt/render/project/src
 
-# Ensure Playwright uses the bundled browsers
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-
-# Copy requirements & install deps
+# Copy requirements & install deps (skip playwright, already in base image)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
