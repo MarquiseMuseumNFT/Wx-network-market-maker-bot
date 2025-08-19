@@ -1,8 +1,8 @@
-# Use an official Python image
+# Use official Python image
 FROM python:3.13-slim-bullseye
 
 # Install system dependencies required by Playwright
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     ca-certificates \
@@ -27,17 +27,16 @@ WORKDIR /app
 # Copy project files
 COPY . .
 
-# Install Python dependencies
-RUN python -m venv .venv
-RUN .venv/bin/pip install --upgrade pip
-RUN .venv/bin/pip install -r requirements.txt
+# Upgrade pip and install Python dependencies
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browsers
-RUN .venv/bin/playwright install
+RUN playwright install --with-deps
 
-# Set environment variables for Python and Playwright
-ENV PATH="/app/.venv/bin:$PATH"
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+# Set environment variables for headless Playwright in cloud
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PYTHONUNBUFFERED=1
 
-# Command to run your bot
+# Default command
 CMD ["python", "bot.py"]
