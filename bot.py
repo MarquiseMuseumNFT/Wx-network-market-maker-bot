@@ -11,17 +11,15 @@ NODE       = os.environ.get("WAVES_NODE",   "https://nodes.wavesnodes.com")
 MATCHER    = os.environ.get("WX_MATCHER",   "https://matcher.wx.network")
 
 GRID_LEVELS      = int(os.environ.get("GRID_LEVELS", 10))
-GRID_SPACING_PCT = float(os.environ.get("GRID_SPACING_PCT", 0.35))  # % spacing between grid levels
-ORDER_NOTIONAL   = float(os.environ.get("ORDER_NOTIONAL", 25))       # base units per order
+GRID_SPACING_PCT = float(os.environ.get("GRID_SPACING_PCT", 0.35))
+ORDER_NOTIONAL   = float(os.environ.get("ORDER_NOTIONAL", 25))
 REFRESH_SEC      = int(os.environ.get("REFRESH_SEC", 20))
 DRY_RUN          = os.environ.get("DRY_RUN", "false").lower() == "true"
 
-# Pair (amountAsset/priceAsset)
 ASSET1 = os.environ.get("AMOUNT_ASSET", "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX")
 ASSET2 = os.environ.get("PRICE_ASSET",  "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
 
-# Explicitly choose fee asset (default WAVES)
-MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")  # "WAVES" or base58 asset id
+MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")
 
 # ===============================
 # Keys
@@ -32,7 +30,6 @@ def _derive_sk_from_seed(seed_bytes: bytes) -> SigningKey:
     seed_hash = hashlib.blake2b(seed_bytes, digest_size=32).digest()
     return SigningKey(seed_hash)
 
-# Always derive from WAVES_SEED
 sk = _derive_sk_from_seed(SEED)
 pk = sk.verify_key
 PUBKEY = base58.b58encode(pk.encode()).decode()
@@ -96,7 +93,6 @@ def order_v3_bytes(order: dict) -> bytes:
 
 def sign_order_proof(order: dict) -> str:
     msg = order_v3_bytes(order)
-    # Sign the message BYTES directly (ed25519 internally hashes); do not pre-hash here.
     sig = sk.sign(msg).signature
     return base58.b58encode(sig).decode()
 
@@ -149,6 +145,22 @@ def get_price():
         return get_wx_mid()
 
 # ===============================
+# Asset decimals
+# ===============================
+def get_asset_decimals(asset_id: str) -> int:
+    if asset_id.upper() == "WAVES":
+        return 8
+    url = f"{NODE}/assets/details/{asset_id}"
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
+    return int(r.json()["decimals"])
+
+AMOUNT_DECIMALS = get_asset_decimals(ASSET1)
+PRICE_DECIMALS  = get_asset_decimals(ASSET2)
+
+print(f"Decimals: amount={AMOUNT_DECIMALS}, price={PRICE_DECIMALS}")
+
+# ===============================
 # Active orders & cancellation
 # ===============================
 def get_my_orders():
@@ -181,33 +193,30 @@ def cancel_all():
         print("Cancel error (listing active orders):", e)
 
 # ===============================
-# Place order (v3 + proper signing)
+# Place order (with decimals fix)
 # ===============================
 def place_order(amount_units: float, price_quote: float, side: str):
+    amount = int(round(amount_units * 10**AMOUNT_DECIMALS))
+    price  = int(round(price_quote * 10**(8 + PRICE_DECIMALS - AMOUNT_DECIMALS)))
+
     order_core = {
         "version": 3,
         "senderPublicKey": PUBKEY,
         "matcherPublicKey": MATCHER_PUBKEY,
         "assetPair": {"amountAsset": ASSET1, "priceAsset": ASSET2},
         "orderType": side,
-        "price": int(round(price_quote * 10**8)),
-        "amount": int(round(amount_units * 10**8)),
+        "price": price,
+        "amount": amount,
         "timestamp": now_ms(),
         "expiration": now_ms() + 24 * 60 * 60 * 1000,
         "matcherFee": 1000000,
         "matcherFeeAssetId": MATCHER_FEE_ASSET_ID,
     }
 
-    # Debugging output
-    print("Order details before signing:", json.dumps(order_core, indent=2))
-
     proof = sign_order_proof(order_core)
     order_core["proofs"] = [proof]
 
     final_payload = wl(order_core, ALLOWED_ORDER_KEYS)
-
-    print("Sending keys:", sorted(final_payload.keys()))
-    print("Final payload before sending:", json.dumps(final_payload, indent=2))
 
     if DRY_RUN:
         print(f"DRY RUN → {side} {amount_units} @ {price_quote}")
@@ -222,7 +231,6 @@ def run():
     while True:
         try:
             cancel_all()
-
             mid = get_price()
             print(f"Mid price used: {mid}")
 
