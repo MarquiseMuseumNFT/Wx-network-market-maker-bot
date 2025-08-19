@@ -2,7 +2,7 @@ import asyncio
 import logging
 import signal
 from config import settings
-from grid import build_grid, total_notional, diff_books, GridOrder
+from grid import build_grid, total_notional, diff_books
 from exchanges.htx import HTXMarketData
 from exchanges.wx import WXExchange
 
@@ -30,21 +30,26 @@ async def run():
 
     await wx.connect()
     await md.connect()
-    log.info("Connected to adapters (WX + HTX)." )
+    log.info("Connected to adapters (WX + HTX).")
 
     try:
         while not STOP.is_set():
-            mid = await md.mid_price()
+            try:
+                mid = await md.mid_price()
+            except Exception as e:
+                log.error(f"Error fetching HTX price: {e}")
+                mid = None
+
             if mid is None:
                 log.warning("No mid price yet; retrying...")
                 await asyncio.sleep(1)
                 continue
 
+            # Build grid from HTX mid
             grid = build_grid(mid, settings.grid_levels, settings.grid_spacing_bps, settings.order_size)
             notion = total_notional(grid)
             if notion > settings.max_notional:
                 log.warning(f"Grid notional {notion:.2f} exceeds MAX_NOTIONAL {settings.max_notional}; shrinking sizes.")
-                # naive scale down
                 scale = settings.max_notional / max(notion, 1e-9)
                 for g in grid:
                     g.size *= scale
@@ -53,12 +58,10 @@ async def run():
             current = await wx.list_open_orders()
             cancels, creates = diff_books(current, grid)
 
-            # Cancel old
             if cancels:
                 log.info(f"Cancelling {len(cancels)} stale orders...")
                 await wx.cancel_orders(cancels)
 
-            # Create new
             if creates:
                 log.info(f"Placing {len(creates)} grid orders...")
                 await wx.place_orders(creates)
