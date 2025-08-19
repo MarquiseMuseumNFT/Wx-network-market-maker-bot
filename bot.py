@@ -28,19 +28,17 @@ MATCHER_FEE_ASSET_ID = os.environ.get("MATCHER_FEE_ASSET_ID", "WAVES")  # "WAVES
 # ===============================
 def _derive_sk_from_seed(seed_bytes: bytes) -> SigningKey:
     if not seed_bytes:
-        raise RuntimeError("Missing WAVES_SEED and PRIVATE_KEY. Provide one of them in the environment.")
+        raise RuntimeError("Missing WAVES_SEED in environment.")
     seed_hash = hashlib.blake2b(seed_bytes, digest_size=32).digest()
     return SigningKey(seed_hash)
 
-# Prefer PRIVATE_KEY if provided, else derive from SEED
-if "PRIVATE_KEY" in os.environ and os.environ["PRIVATE_KEY"].strip():
-    try:
-        sk = SigningKey(base58.b58decode(os.environ["PRIVATE_KEY"].strip()))
-    except Exception as e:
-        print("Failed to decode PRIVATE_KEY (must be base58-encoded 32-byte key):", e, file=sys.stderr)
-        sys.exit(2)
-else:
-    sk = _derive_sk_from_seed(SEED)
+# Always derive from WAVES_SEED
+sk = _derive_sk_from_seed(SEED)
+pk = sk.verify_key
+PUBKEY = base58.b58encode(pk.encode()).decode()
+
+print("Derived PUBKEY:", PUBKEY)
+
 
 pk = sk.verify_key
 derived_pubkey = base58.b58encode(pk.encode()).decode()
