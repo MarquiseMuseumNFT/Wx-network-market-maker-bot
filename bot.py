@@ -226,7 +226,7 @@ def place_order(amount_units: float, price_quote: float, side: str):
 
     if DRY_RUN:
         print(f"DRY RUN → {side} {amount_units} @ {price_quote} | Proof b64: {proof_b64}")
-        return True
+        return False
 
     return post_order(final_payload)
 
