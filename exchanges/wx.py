@@ -1,4 +1,3 @@
-import os
 from playwright.async_api import async_playwright
 
 class WXExchange:
@@ -8,12 +7,11 @@ class WXExchange:
         self.page = None
 
     async def connect(self):
-        browser_choice = os.getenv("PLAYWRIGHT_BROWSER", "chromium")
         async with async_playwright() as playwright:
-            # Default to Chromium to avoid Firefox missing binary issues
-            self.browser = await getattr(playwright, browser_choice).launch(headless=True)
+            # Force Chromium (Firefox removed due to Render missing binary issue)
+            self.browser = await playwright.chromium.launch(headless=True)
             self.page = await self.browser.new_page()
-            await self.page.goto("https://wx.network/")  # adjust URL if needed
+            await self.page.goto("https://wx.network/")  # adjust if different entrypoint
 
     async def close(self):
         if self.browser:
