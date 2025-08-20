@@ -4,7 +4,7 @@ from wx import WXExchange
 from grid import Order
 
 # Replace with your token IDs
-ASSET_ID = "YOUR_TOKEN_ID"  # amount token
+AMOUNT_ASSET_ID = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"  # amount token
 PRICE_ASSET_ID = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # price token (e.g. USDT)
 
 async def main():
