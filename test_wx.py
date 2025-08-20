@@ -1,40 +1,49 @@
-from exchanges.wx_exchange import WXExchange
-from grid import build_grid, total_notional, diff_books
+# test_wx.py
+import asyncio
+from playwright.async_api import async_playwright
+from wx_exchange import WXExchange
+from grid import build_grid, diff_books
+
+
+async def main():
+    url = "https://wx.network/trading/spot/9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX_EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)  # set True if you want background
+        page = await browser.new_page()
+
+        # Open trading pair
+        await page.goto(url)
+
+        # TODO: if you need login, add code here (e.g., wallet connect)
+
+        # pair asset IDs (USDT/WAVES as example, update if needed)
+        asset_id = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"      # WAVES
+        price_asset_id = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # USDT
+
+        wx = WXExchange(page, asset_id, price_asset_id)
+
+        # Get current orders (from frontend DOM)
+        current_orders = await wx.list_open_orders()
+
+        # Build a grid
+        mid = 1.0  # TODO: replace with await wx.get_mid_price()
+        target_orders = build_grid(mid, levels=3, spacing_bps=50, size=0.1)
+
+        cancels, creates = diff_books(current_orders, target_orders)
+
+        print("Need to cancel:", cancels)
+        print("Need to create:", creates)
+
+        # Place and cancel orders
+        for oid in cancels:
+            await wx.cancel_order(oid)
+
+        for order in creates:
+            await wx.place_order(order["side"], order["price"], order["amount"])
+
+        await browser.close()
+
 
 if __name__ == "__main__":
-    wx = WXExchange()
-
-    # Pick a trading pair
-    pair = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX_EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"   # <-- change this to your real pair
-
-    # Get current market data
-    ticker = wx.get_ticker(pair)
-    mid = (ticker["best_bid"] + ticker["best_ask"]) / 2
-    print(f"Mid price for {pair}: {mid}")
-
-    # Build grid
-    grid = build_grid(mid=mid, levels=3, spacing_bps=100, size=1)  # size = order amount
-    print("\nTarget Grid Orders:")
-    for o in grid:
-        print(o)
-
-    print("\nTotal notional:", total_notional(grid))
-
-    # Get current open orders
-    current = wx.list_open_orders(pair)
-    print("\nCurrent orders:", current)
-
-    # Diff between what we want vs what exists
-    cancels, creates = diff_books(current, grid)
-    print("\nCancelling:", cancels)
-    print("Creating:", creates)
-
-    # Cancel old orders
-    for oid in cancels:
-        wx.cancel_order(pair, oid)
-
-    # Place new orders
-    for o in creates:
-        wx.place_order(pair, o["side"], o["price"], o["amount"])
-
-    print("\n✅ Grid synced with live exchange!")
+    asyncio.run(main())
