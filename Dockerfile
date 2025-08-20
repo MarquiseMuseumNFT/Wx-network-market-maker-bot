@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install --with-deps
 
 # Set environment variables for headless Playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_HEADLESS=1
 ENV PYTHONUNBUFFERED=1
 
 # Default command
