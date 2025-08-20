@@ -7,9 +7,9 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      npx playwright install --with-deps chromium
+      python -m playwright install --with-deps chromium
     startCommand: python test_wx.py
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13
+        value: 3.11
     autoDeploy: true
