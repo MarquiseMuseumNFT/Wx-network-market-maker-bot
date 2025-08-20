@@ -1,41 +1,51 @@
 import asyncio
 from playwright.async_api import async_playwright
 
-
 class WXExchange:
-    def __init__(self, asset_id: str):
+    def __init__(self, base_url="https://wx.network", asset_id=None):
+        self.base_url = base_url
         self.asset_id = asset_id
         self.playwright = None
         self.browser = None
         self.page = None
 
     async def connect(self):
-        """Launch Chromium instead of Firefox (Render only installs Chromium)."""
+        print("🔌 Connecting to WX (Chromium)...")
         self.playwright = await async_playwright().start()
+        # switched from firefox → chromium
         self.browser = await self.playwright.chromium.launch(headless=True)
         self.page = await self.browser.new_page()
-        await self.page.goto("https://wx.network")  # adjust if you need login/trading page
+        await self.page.goto(self.base_url)
+        print("✅ WX frontend loaded.")
 
     async def list_open_orders(self):
-        # TODO: replace stub with DOM scraping or API calls
+        print("📋 [stub] Fetching open orders...")
         return []
 
     async def place_orders(self, orders):
-        # TODO: implement DOM interactions for placing orders
-        for order in orders:
-            print(f"[WXExchange] Would place order: {order}")
+        print(f"📝 [stub] Placing {len(orders)} orders...")
+        for o in orders:
+            print("  ", o)
 
     async def cancel_orders(self, order_ids):
-        # TODO: implement DOM interactions for canceling
-        for oid in order_ids:
-            print(f"[WXExchange] Would cancel order {oid}")
+        print(f"❌ [stub] Cancelling {len(order_ids)} orders...")
 
     async def cancel_all(self):
-        # TODO: implement "cancel all" button press or API call
-        print("[WXExchange] Would cancel all orders")
+        print("⚠️ [stub] Cancelling ALL orders...")
 
     async def close(self):
+        print("🔒 Closing WX session...")
         if self.browser:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
+
+
+# local test
+if __name__ == "__main__":
+    async def main():
+        wx = WXExchange()
+        await wx.connect()
+        await wx.close()
+
+    asyncio.run(main())
