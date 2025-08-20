@@ -4,7 +4,7 @@ import signal
 from config import settings
 from grid import build_grid, total_notional, diff_books
 from exchanges.htx import HTXMarketData
-from exchanges.wx import WXExchange  # <-- our new Playwright frontend adapter
+from exchanges.wx import WXExchange  # <-- our Playwright frontend adapter
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO),
                     format="%(asctime)s [%(levelname)s] %(message)s")
@@ -21,9 +21,7 @@ def handle_stop(*_):
 async def run():
     # Market data source (HTX) + frontend execution (WX)
     md = HTXMarketData(symbol=settings.ref_symbol)
-    wx = WXExchange(
-        target_asset_id=settings.target_asset_id
-    )
+    wx = WXExchange(settings)   # ✅ pass the whole settings object
 
     # Connect both adapters
     await wx.connect()
