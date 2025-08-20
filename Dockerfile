@@ -2,9 +2,10 @@
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Install system deps needed by Playwright
+# Install system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-4-1 \
     libgraphene-1.0-0 \
@@ -24,11 +25,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Install Playwright and Chromium (this step is critical)
+# Install Playwright browsers into the image (critical fix)
 RUN python -m playwright install --with-deps chromium
 
-# Copy the rest of the app
+# Copy app
 COPY . .
 
-# Start
-CMD ["python", "bot.py"]
+# Start bot
+CMD ["python", "test_wx.py"]
