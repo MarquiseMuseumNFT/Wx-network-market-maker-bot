@@ -9,7 +9,7 @@ class WXExchange:
 
     async def connect(self):
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False)  # set True for server
+        self.browser = await self.playwright.chromium.launch(headless=False)  # set True on server
         self.page = await self.browser.new_page()
         await self.page.goto("https://wx.network/")
 
@@ -41,11 +41,53 @@ class WXExchange:
         # Confirm
         await self.page.get_by_role("button", name="Confirm").click()
 
-    async def cancel_all_orders(self):
+    async def place_orders(self, orders):
+        """Place multiple grid orders"""
+        for o in orders:
+            await self.place_order(o.side, o.price, o.size)
+
+    async def cancel_orders(self, orders):
+        """Cancel specific orders by id"""
+        await self.page.goto("https://wx.network/orders/open")
+
+        for o in orders:
+            # Each order should have an .id or identifier
+            selector = f"text=Cancel >> [data-order-id='{o.id}']"
+            try:
+                btn = await self.page.query_selector(selector)
+                if btn:
+                    await btn.click()
+            except Exception:
+                pass
+
+    async def cancel_all(self):
+        """Cancel all open orders"""
         await self.page.goto("https://wx.network/orders/open")
         cancel_buttons = await self.page.query_selector_all("text=Cancel")
         for btn in cancel_buttons:
             await btn.click()
+
+    async def list_open_orders(self):
+        """Scrape open orders table and return as list of dicts"""
+        await self.page.goto("https://wx.network/orders/open")
+
+        rows = await self.page.query_selector_all("table tr")
+        orders = []
+        for row in rows:
+            cells = await row.query_selector_all("td")
+            if not cells:
+                continue
+            try:
+                order = {
+                    "id": await cells[0].inner_text(),   # adjust index depending on table layout
+                    "side": await cells[1].inner_text(),
+                    "price": float(await cells[2].inner_text()),
+                    "size": float(await cells[3].inner_text()),
+                }
+                orders.append(order)
+            except Exception:
+                continue
+        return orders
 
     async def close(self):
         if self.browser:
