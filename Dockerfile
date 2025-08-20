@@ -4,7 +4,6 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# ---- System deps needed by Playwright headless browsers ----
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-4-1 \
@@ -17,19 +16,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgles2 \
     fonts-liberation \
     ffmpeg \
+    wget \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python deps first (better layer caching)
+# Install Python deps
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Install Playwright browsers during build (not on every start)
-# You can restrict to only the engines you need.
-RUN python -m playwright install chromium firefox webkit
+# ✅ Install Playwright browsers inside the image
+RUN playwright install --with-deps chromium
 
-# Copy the rest of the app
+# Copy the app
 COPY . .
 
 # Start the bot
