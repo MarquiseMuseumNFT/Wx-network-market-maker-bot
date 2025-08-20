@@ -1,119 +1,95 @@
 import asyncio
-from playwright.async_api import async_playwright
 
 class WXExchange:
-    def __init__(self, page, asset_id, price_asset_id, base_url="https://wx.network"):
+    def __init__(self, page, base_url="https://wx.network"):
         self.page = page
-        self.asset_id = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"    # token you’re trading
-        self.price_asset_id = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # usually WAVES or USDT
+        self.asset_id = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"    # base token
+        self.price_asset_id = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # quote token (USDT/WAVES)
         self.base_url = base_url
 
-    async def list_open_orders(self):
-        """
-        Scrape open orders from the 'My Orders' table.
-        Returns list of dicts with side/price/amount/order_id.
-        """
-        trade_url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
-        await self.page.goto(trade_url)
-        await self.page.wait_for_selector("text=My Orders")
+    async def goto_market(self):
+        """Navigate directly to the hardcoded trading pair page."""
+        url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
+        await self.page.goto(url)
+        print(f"Opened market: {url}")
 
-        rows = await self.page.query_selector_all("table:has-text('My Orders') tbody tr")
-        orders = []
-        for r in rows:
+    async def debug_selectors(self):
+        """Print all input and button selectors currently visible."""
+        inputs = await self.page.query_selector_all("input")
+        buttons = await self.page.query_selector_all("button")
+
+        print("\n--- DEBUG: INPUTS ---")
+        for i, el in enumerate(inputs):
             try:
-                tds = await r.query_selector_all("td")
-                if len(tds) < 4:
-                    continue
-                side = (await tds[0].inner_text()).strip().lower()
-                price = float((await tds[1].inner_text()).replace(",", "").strip())
-                amount = float((await tds[2].inner_text()).replace(",", "").strip())
-                order_id = await r.get_attribute("data-row-key")
-                orders.append({
-                    "id": order_id,
-                    "side": side,
-                    "price": price,
-                    "amount": amount
-                })
-            except Exception as e:
-                print("⚠️ Could not parse order row:", e)
-        return orders
+                html = await el.get_attribute("outerHTML")
+                print(f"[{i}] {html[:120]}...")
+            except:
+                pass
 
-    async def cancel_all(self):
-        """
-        Cancel all open orders by clicking cancel buttons.
-        """
-        trade_url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
-        await self.page.goto(trade_url)
-        await self.page.wait_for_selector("text=My Orders")
-
-        cancel_buttons = await self.page.query_selector_all("button:has-text('Cancel')")
-        for b in cancel_buttons:
+        print("\n--- DEBUG: BUTTONS ---")
+        for i, el in enumerate(buttons):
             try:
-                await b.click()
-                await asyncio.sleep(0.5)
-                print("❌ Cancelled one order")
-            except Exception as e:
-                print("⚠️ Cancel click failed:", e)
+                text = await el.inner_text()
+                html = await el.get_attribute("outerHTML")
+                print(f"[{i}] Text='{text.strip()}' | {html[:120]}...")
+            except:
+                pass
+        print("\n⚠️ Use these to identify correct selectors for price, amount, buy, sell.\n")
 
-    async def place_orders(self, orders):
+    async def place_order(self, side: str, price: float, amount: float):
         """
-        Place grid orders (buy/sell) via UI.
-        orders: list of Order objects.
+        Place a BUY or SELL order on WX frontend.
+        side = 'buy' or 'sell'
         """
-        trade_url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
-        await self.page.goto(trade_url)
-        await self.page.wait_for_selector("input[placeholder='Price']")
+        print(f"Placing {side.upper()} order: {amount} at {price}")
 
-        for o in orders:
-            print(f"➡️ Placing {o.side.upper()} {o.size} @ {o.price}")
+        # Candidate selectors for inputs
+        price_selectors = ["input[name='price']", "input[placeholder*='Price']", "input[data-testid='price']"]
+        amount_selectors = ["input[name='amount']", "input[placeholder*='Amount']", "input[data-testid='amount']"]
 
+        # Fill price
+        filled = False
+        for sel in price_selectors:
             try:
-                # Fill price
-                price_box = await self.page.query_selector("input[placeholder='Price']")
-                await price_box.fill(str(o.price))
+                await self.page.fill(sel, str(price))
+                print(f"✅ Filled price using selector: {sel}")
+                filled = True
+                break
+            except:
+                continue
+        if not filled:
+            print("⚠️ Could not find price input. Run debug_selectors() to inspect.")
 
-                # Fill amount
-                amount_box = await self.page.query_selector("input[placeholder='Amount']")
-                await amount_box.fill(str(o.size))
+        # Fill amount
+        filled = False
+        for sel in amount_selectors:
+            try:
+                await self.page.fill(sel, str(amount))
+                print(f"✅ Filled amount using selector: {sel}")
+                filled = True
+                break
+            except:
+                continue
+        if not filled:
+            print("⚠️ Could not find amount input. Run debug_selectors() to inspect.")
 
-                # Click Buy or Sell
-                if o.side.lower() == "buy":
-                    await self.page.click("button:has-text('Buy')")
-                else:
-                    await self.page.click("button:has-text('Sell')")
+        # Candidate selectors for Buy/Sell buttons
+        if side == "buy":
+            btn_selectors = ["button:has-text('Buy')", "button.buy", "button.bg-green-500"]
+        elif side == "sell":
+            btn_selectors = ["button:has-text('Sell')", "button.sell", "button.bg-red-500"]
+        else:
+            print("❌ Invalid side, must be 'buy' or 'sell'")
+            return
 
-                # Confirm placement
-                try:
-                    await self.page.wait_for_selector("text=Order placed", timeout=5000)
-                    print("✅ Order confirmed")
-                except:
-                    print("⚠️ No confirmation detected")
-
-            except Exception as e:
-                print("❌ Failed to place order:", e)
-
-            await asyncio.sleep(1)  # spacing to avoid UI race
-
-# Example for manual test
-async def main():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        wx = WXExchange(page, asset_id="9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX", price_asset_id="EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
-
-        await wx.cancel_all()
-        open_orders = await wx.list_open_orders()
-        print("Open orders:", open_orders)
-
-        from grid import Order
-        test_orders = [
-            Order(id=None, side="buy", price=0.1, size=5),
-            Order(id=None, side="sell", price=0.2, size=5)
-        ]
-        await wx.place_orders(test_orders)
-
-        await asyncio.sleep(10)
-        await browser.close()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        clicked = False
+        for sel in btn_selectors:
+            try:
+                await self.page.click(sel)
+                print(f"✅ Clicked {side.upper()} button using selector: {sel}")
+                clicked = True
+                break
+            except:
+                continue
+        if not clicked:
+            print(f"⚠️ Could not find {side.upper()} button. Run debug_selectors() to inspect.")
