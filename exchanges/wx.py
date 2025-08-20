@@ -1,5 +1,5 @@
 from playwright.async_api import async_playwright
-from grid import Order   # ✅ use the shared dataclass
+from grid import Order   # ✅ shared dataclass
 
 
 class WXExchange:
@@ -11,7 +11,8 @@ class WXExchange:
 
     async def connect(self):
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False)  # set True on server
+        # ✅ switched to Firefox, headless for server environments
+        self.browser = await self.playwright.firefox.launch(headless=True)
         self.page = await self.browser.new_page()
         await self.page.goto("https://wx.network/")
 
@@ -84,7 +85,7 @@ class WXExchange:
                 continue
             try:
                 order = Order(
-                    id=(await cells[0].inner_text()).strip(),   # adjust index if needed
+                    id=(await cells[0].inner_text()).strip(),   # adjust column index if needed
                     side=(await cells[1].inner_text()).strip().lower(),
                     price=float((await cells[2].inner_text()).replace(",", "")),
                     size=float((await cells[3].inner_text()).replace(",", "")),
