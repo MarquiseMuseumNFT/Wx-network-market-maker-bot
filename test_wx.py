@@ -1,6 +1,6 @@
 import asyncio
 from playwright.async_api import async_playwright
-from wx_exchange import WXExchange
+from exchanges.wx_exchange import WXExchange
 from grid import Order
 
 # Replace with your token IDs
