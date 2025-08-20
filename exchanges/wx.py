@@ -1,4 +1,6 @@
 from playwright.async_api import async_playwright
+from grid import Order   # ✅ use the shared dataclass
+
 
 class WXExchange:
     def __init__(self, config):
@@ -19,14 +21,16 @@ class WXExchange:
         # Fill password
         await self.page.fill("input[type='password']", self.config.wx_login_pass)
 
-        # Submit form (by pressing Enter or clicking button)
+        # Submit form
         await self.page.press("input[type='password']", "Enter")
 
         # Wait for balance or orders panel to show up
         await self.page.wait_for_selector("text=Balance")
 
     async def place_order(self, side: str, price: float, amount: float):
-        await self.page.goto("https://wx.network/trading/spot/9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX_EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
+        await self.page.goto(
+            "https://wx.network/trading/spot/9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX_EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
+        )
 
         # Fill order form
         await self.page.fill("input[name='price']", str(price))
@@ -51,14 +55,15 @@ class WXExchange:
         await self.page.goto("https://wx.network/orders/open")
 
         for o in orders:
-            # Each order should have an .id or identifier
-            selector = f"text=Cancel >> [data-order-id='{o.id}']"
+            if not o.id:
+                continue
+            selector = f"[data-order-id='{o.id}'] >> text=Cancel"
             try:
                 btn = await self.page.query_selector(selector)
                 if btn:
                     await btn.click()
             except Exception:
-                pass
+                continue
 
     async def cancel_all(self):
         """Cancel all open orders"""
@@ -68,22 +73,22 @@ class WXExchange:
             await btn.click()
 
     async def list_open_orders(self):
-        """Scrape open orders table and return as list of dicts"""
+        """Scrape open orders table and return as list[Order]"""
         await self.page.goto("https://wx.network/orders/open")
-
         rows = await self.page.query_selector_all("table tr")
         orders = []
+
         for row in rows:
             cells = await row.query_selector_all("td")
             if not cells:
                 continue
             try:
-                order = {
-                    "id": await cells[0].inner_text(),   # adjust index depending on table layout
-                    "side": await cells[1].inner_text(),
-                    "price": float(await cells[2].inner_text()),
-                    "size": float(await cells[3].inner_text()),
-                }
+                order = Order(
+                    id=(await cells[0].inner_text()).strip(),   # adjust index if needed
+                    side=(await cells[1].inner_text()).strip().lower(),
+                    price=float((await cells[2].inner_text()).replace(",", "")),
+                    size=float((await cells[3].inner_text()).replace(",", "")),
+                )
                 orders.append(order)
             except Exception:
                 continue
