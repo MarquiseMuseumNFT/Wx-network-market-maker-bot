@@ -1,11 +1,11 @@
-from wx_exchange import WXExchange
+from exchanges.wx_exchange import WXExchange
 from grid import build_grid, total_notional, diff_books
 
 if __name__ == "__main__":
     wx = WXExchange()
 
     # Pick a trading pair
-    pair = "USDT/WAVES"   # <-- change this to your real pair
+    pair = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX_EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"   # <-- change this to your real pair
 
     # Get current market data
     ticker = wx.get_ticker(pair)
