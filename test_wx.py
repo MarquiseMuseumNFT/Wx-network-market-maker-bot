@@ -1,7 +1,7 @@
 # test_wx.py
 import asyncio
 from playwright.async_api import async_playwright
-from wx_exchange import WXExchange
+from exchanges.wx_exchange import WXExchange
 from grid import build_grid, diff_books
 
 
