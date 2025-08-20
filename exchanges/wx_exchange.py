@@ -6,7 +6,7 @@ class WXExchange:
         self.page = page
         self.asset_id = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"    # token you’re trading
         self.price_asset_id = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # usually WAVES or USDT
-        self.base_url = https://wx.network
+        self.base_url = "https://wx.network"
 
     async def list_open_orders(self):
         """
