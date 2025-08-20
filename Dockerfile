@@ -1,24 +1,34 @@
+# Dockerfile
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# System deps for Chromium
+# Install system deps needed by Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget gnupg libnss3 libx11-xcb1 libxcomposite1 libxcursor1 \
-    libxdamage1 libxi6 libxtst6 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libxrandr2 libgbm1 libasound2 \
-    libpangocairo-1.0-0 libpango-1.0-0 libcairo2 \
+    libgtk-4-1 \
+    libgraphene-1.0-0 \
+    gstreamer1.0-gl \
+    gstreamer1.0-plugins-bad \
+    libenchant-2-2 \
+    libsecret-1-0 \
+    libmanette-0.2-0 \
+    libgles2 \
+    fonts-liberation \
+    ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+# Install Python deps
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# ⬇️ This bakes Chromium into the image
-RUN playwright install --with-deps chromium
+# Install Playwright and Chromium (this step is critical)
+RUN python -m playwright install --with-deps chromium
 
+# Copy the rest of the app
 COPY . .
 
-CMD ["python", "test_wx.py"]
+# Start
+CMD ["python", "bot.py"]
