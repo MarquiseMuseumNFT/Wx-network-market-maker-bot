@@ -8,7 +8,7 @@ async def main():
     url = "https://wx.network/trading/spot/9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX_EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)  # set True for background
+        browser = await p.chromium.launch(headless=True)  # set True for background
         page = await browser.new_page()
 
         wx = WXExchange(
