@@ -2,81 +2,118 @@ import asyncio
 from playwright.async_api import async_playwright
 
 class WXExchange:
-    def __init__(self, settings):
-        self.settings = settings
-        self.base_url = "https://wx.network/trading/spot"
-        self.playwright = None
-        self.browser = None
-        self.page = None
-
-    async def connect(self):
-        print("🔌 Connecting to WX (Chromium)...")
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=True)
-        self.page = await self.browser.new_page()
-
-        url = f"{self.base_url}/{self.settings.AMOUNT_ASSET_ID}_{self.settings.PRICE_ASSET_ID}"
-        await self.page.goto(url)
-        await self.page.wait_for_selector("text=Order Book")  # sanity check
-        print("✅ WX frontend loaded and trading pair ready.")
+    def __init__(self, page, asset_id, price_asset_id, base_url="https://wx.network"):
+        self.page = page
+        self.asset_id = asset_id          # token you’re trading
+        self.price_asset_id = price_asset_id  # usually WAVES or USDT
+        self.base_url = base_url
 
     async def list_open_orders(self):
-        print("📋 Fetching open orders...")
+        """
+        Scrape open orders from the 'My Orders' table.
+        Returns list of dicts with side/price/amount/order_id.
+        """
+        trade_url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
+        await self.page.goto(trade_url)
+        await self.page.wait_for_selector("text=My Orders")
+
+        rows = await self.page.query_selector_all("table:has-text('My Orders') tbody tr")
         orders = []
-        # Example: DOM selectors must match WX’s UI
-        rows = await self.page.query_selector_all("css=[data-testid='open-order-row']")
         for r in rows:
-            oid = await r.get_attribute("data-order-id")
-            side = await r.query_selector("css=.side")
-            side_text = (await side.inner_text()).lower()
-            price = float(await (await r.query_selector(".price")).inner_text())
-            amount = float(await (await r.query_selector(".amount")).inner_text())
-            orders.append({
-                "id": oid,
-                "side": side_text,
-                "price": price,
-                "amount": amount
-            })
+            try:
+                tds = await r.query_selector_all("td")
+                if len(tds) < 4:
+                    continue
+                side = (await tds[0].inner_text()).strip().lower()
+                price = float((await tds[1].inner_text()).replace(",", "").strip())
+                amount = float((await tds[2].inner_text()).replace(",", "").strip())
+                order_id = await r.get_attribute("data-row-key")
+                orders.append({
+                    "id": order_id,
+                    "side": side,
+                    "price": price,
+                    "amount": amount
+                })
+            except Exception as e:
+                print("⚠️ Could not parse order row:", e)
         return orders
 
-    async def place_orders(self, orders):
-        print(f"📝 Placing {len(orders)} orders...")
-        for o in orders:
-            # Click Buy/Sell tab
-            if o["side"] == "buy":
-                await self.page.click("text=Buy")
-            else:
-                await self.page.click("text=Sell")
-
-            # Fill price + amount
-            await self.page.fill("input[name=price]", str(o["price"]))
-            await self.page.fill("input[name=amount]", str(o["amount"]))
-
-            # Submit
-            await self.page.click("button[type=submit]")
-            await asyncio.sleep(0.5)  # avoid rate limiting
-            print(f"✅ Placed {o['side']} {o['amount']} @ {o['price']}")
-
-    async def cancel_orders(self, order_ids):
-        print(f"❌ Cancelling {len(order_ids)} orders...")
-        for oid in order_ids:
-            cancel_btn = await self.page.query_selector(f"button[data-cancel-order-id='{oid}']")
-            if cancel_btn:
-                await cancel_btn.click()
-                print(f"✅ Cancelled order {oid}")
-            await asyncio.sleep(0.3)
-
     async def cancel_all(self):
-        print("⚠️ Cancelling ALL orders...")
-        btns = await self.page.query_selector_all("button[data-testid='cancel-order']")
-        for b in btns:
-            await b.click()
-            await asyncio.sleep(0.2)
-        print("✅ All orders cancelled.")
+        """
+        Cancel all open orders by clicking cancel buttons.
+        """
+        trade_url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
+        await self.page.goto(trade_url)
+        await self.page.wait_for_selector("text=My Orders")
 
-    async def close(self):
-        print("🔒 Closing WX session...")
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
+        cancel_buttons = await self.page.query_selector_all("button:has-text('Cancel')")
+        for b in cancel_buttons:
+            try:
+                await b.click()
+                await asyncio.sleep(0.5)
+                print("❌ Cancelled one order")
+            except Exception as e:
+                print("⚠️ Cancel click failed:", e)
+
+    async def place_orders(self, orders):
+        """
+        Place grid orders (buy/sell) via UI.
+        orders: list of Order objects.
+        """
+        trade_url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
+        await self.page.goto(trade_url)
+        await self.page.wait_for_selector("input[placeholder='Price']")
+
+        for o in orders:
+            print(f"➡️ Placing {o.side.upper()} {o.size} @ {o.price}")
+
+            try:
+                # Fill price
+                price_box = await self.page.query_selector("input[placeholder='Price']")
+                await price_box.fill(str(o.price))
+
+                # Fill amount
+                amount_box = await self.page.query_selector("input[placeholder='Amount']")
+                await amount_box.fill(str(o.size))
+
+                # Click Buy or Sell
+                if o.side.lower() == "buy":
+                    await self.page.click("button:has-text('Buy')")
+                else:
+                    await self.page.click("button:has-text('Sell')")
+
+                # Confirm placement
+                try:
+                    await self.page.wait_for_selector("text=Order placed", timeout=5000)
+                    print("✅ Order confirmed")
+                except:
+                    print("⚠️ No confirmation detected")
+
+            except Exception as e:
+                print("❌ Failed to place order:", e)
+
+            await asyncio.sleep(1)  # spacing to avoid UI race
+
+# Example for manual test
+async def main():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        page = await browser.new_page()
+        wx = WXExchange(page, amount_asset_id="9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX", price_asset_id="EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
+
+        await wx.cancel_all()
+        open_orders = await wx.list_open_orders()
+        print("Open orders:", open_orders)
+
+        from grid import Order
+        test_orders = [
+            Order(id=None, side="buy", price=0.1, size=5),
+            Order(id=None, side="sell", price=0.2, size=5)
+        ]
+        await wx.place_orders(test_orders)
+
+        await asyncio.sleep(10)
+        await browser.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
