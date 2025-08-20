@@ -1,23 +1,32 @@
+import os
 import asyncio
-from exchanges.wx import WXExchange
+from wx import WXExchange
 
 async def main():
-    wx = WXExchange(asset_id="TEST_ASSET")
+    amount_asset = os.getenv("AMOUNT_ASSET_ID")
+    price_asset = os.getenv("PRICE_ASSET_ID")
 
-    print("🔌 Connecting to WX...")
+    if not amount_asset or not price_asset:
+        raise ValueError("❌ Missing env vars: AMOUNT_ASSET_ID and PRICE_ASSET_ID must be set.")
 
-    # Debug: check where Playwright expects Chromium
-    from playwright.async_api import async_playwright
-    async with async_playwright() as pw:
-        chromium_path = pw.chromium.executable_path
-        print(f"📂 Playwright Chromium executable path: {chromium_path}")
+    wx = WXExchange(
+        amount_asset=amount_asset,
+        price_asset=price_asset
+    )
 
-    # Now actually connect
     await wx.connect()
 
-    print("✅ Connected. Listing orders...")
-    orders = await wx.list_open_orders()
-    print("Orders:", orders)
+    # --- demo calls ---
+    open_orders = await wx.list_open_orders()
+    print("Open orders:", open_orders)
+
+    await wx.place_orders([
+        {"side": "buy", "price": "1.0", "amount": "10"},
+        {"side": "sell", "price": "2.0", "amount": "5"}
+    ])
+
+    await wx.cancel_orders(["dummy_order_id"])
+    await wx.cancel_all()
 
     await wx.close()
 
