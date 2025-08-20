@@ -1,15 +1,15 @@
 services:
-  - type: worker
-    name: wx-market-maker
-    env: python
-    plan: starter
-    runtime: python
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      python -m playwright install --with-deps chromium
-    startCommand: python test_wx.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11
-    autoDeploy: true
+- type: worker
+  name: wx-market-maker
+  env: python
+  plan: starter
+  runtime: python
+  buildCommand: |
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    playwright install --with-deps chromium
+  startCommand: python test_wx.py
+  envVars:
+  - key: PYTHON_VERSION
+    value: 3.11
+  autoDeploy: true
