@@ -2,9 +2,10 @@ import asyncio
 from playwright.async_api import async_playwright
 
 class WXExchange:
-    def __init__(self, base_url="https://wx.network", asset_id=None):
+    def __init__(self, base_url="https://wx.network", amount_asset=None, price_asset=None):
         self.base_url = base_url
-        self.asset_id = asset_id
+        self.amount_asset = amount_asset   # token you’re trading (amount)
+        self.price_asset = price_asset     # token quoted in (price)
         self.playwright = None
         self.browser = None
         self.page = None
@@ -12,11 +13,10 @@ class WXExchange:
     async def connect(self):
         print("🔌 Connecting to WX (Chromium)...")
         self.playwright = await async_playwright().start()
-        # switched from firefox → chromium
         self.browser = await self.playwright.chromium.launch(headless=True)
         self.page = await self.browser.new_page()
         await self.page.goto(self.base_url)
-        print("✅ WX frontend loaded.")
+        print(f"✅ WX frontend loaded. Market = {self.amount_asset}/{self.price_asset}")
 
     async def list_open_orders(self):
         print("📋 [stub] Fetching open orders...")
@@ -44,7 +44,10 @@ class WXExchange:
 # local test
 if __name__ == "__main__":
     async def main():
-        wx = WXExchange()
+        wx = WXExchange(
+            amount_asset="AMOUNT_ASSET_ID",
+            price_asset="PRICE_ASSET_ID"
+        )
         await wx.connect()
         await wx.close()
 
