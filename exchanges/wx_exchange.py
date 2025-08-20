@@ -4,8 +4,8 @@ from playwright.async_api import async_playwright
 class WXExchange:
     def __init__(self, page, asset_id, price_asset_id, base_url="https://wx.network"):
         self.page = page
-        self.asset_id = asset_id          # token you’re trading
-        self.price_asset_id = price_asset_id  # usually WAVES or USDT
+        self.asset_id = 9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX    # token you’re trading
+        self.price_asset_id = EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA  # usually WAVES or USDT
         self.base_url = base_url
 
     async def list_open_orders(self):
