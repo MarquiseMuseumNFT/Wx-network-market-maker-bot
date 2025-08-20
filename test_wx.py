@@ -1,31 +1,35 @@
 import asyncio
-from exchanges.wx import WXExchange
-import settings
-from grid import Order   # using your dataclass Order
+from playwright.async_api import async_playwright
+from wx import WXExchange
+from grid import Order
+
+# Replace with your token IDs
+ASSET_ID = "YOUR_TOKEN_ID"  # amount token
+PRICE_ASSET_ID = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # price token (e.g. USDT)
 
 async def main():
-    wx = WXExchange(settings)
-    await wx.connect()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)  # set True on render
+        page = await browser.new_page()
 
-    # Step 1: list open orders
-    open_orders = await wx.list_open_orders()
-    print("📋 Open orders:", open_orders)
+        wx = WXExchange(page, amount_asset_id=AMOUNT_ASSET_ID, price_asset_id=PRICE_ASSET_ID)
 
-    # Step 2: cancel all
-    if open_orders:
-        print("⚠️ Cancelling all existing orders...")
+        # 1. Cancel all old orders
         await wx.cancel_all()
 
-    # Step 3: place 1 buy + 1 sell
-    test_orders = [
-        Order(id=None, side="buy", price=0.5, size=1),   # adjust values to fit market tick size
-        Order(id=None, side="sell", price=2.0, size=1),
-    ]
-    print("📝 Placing test orders...")
-    await wx.place_orders(test_orders)
+        # 2. Check existing
+        open_orders = await wx.list_open_orders()
+        print("📊 Open orders:", open_orders)
 
-    # Step 4: close session
-    await wx.close()
+        # 3. Place sample grid
+        test_orders = [
+            Order(id=None, side="buy", price=0.1, size=5),
+            Order(id=None, side="sell", price=0.2, size=5)
+        ]
+        await wx.place_orders(test_orders)
+
+        await asyncio.sleep(10)
+        await browser.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
