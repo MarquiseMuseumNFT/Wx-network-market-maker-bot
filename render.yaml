@@ -1,6 +1,6 @@
 # render.yaml
 services:
-  - type: web
+  - type: worker
     name: wx-market-maker
     env: python
     plan: starter
