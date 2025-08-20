@@ -2,7 +2,7 @@ import asyncio
 from exchanges.wx import WXExchange
 
 async def main():
-    wx = WXExchange(target_asset_id="TEST_ASSET")
+    wx = WXExchange(asset_id="TEST_ASSET")
 
     print("🔌 Connecting to WX...")
 
