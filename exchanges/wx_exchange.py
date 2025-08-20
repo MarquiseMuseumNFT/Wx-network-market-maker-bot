@@ -99,7 +99,7 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
-        wx = WXExchange(page, amount_asset_id="9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX", price_asset_id="EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
+        wx = WXExchange(page, asset_id="9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX", price_asset_id="EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA")
 
         await wx.cancel_all()
         open_orders = await wx.list_open_orders()
