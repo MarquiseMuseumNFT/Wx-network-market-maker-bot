@@ -1,17 +1,48 @@
 import asyncio
+import os
+from playwright.async_api import async_playwright
 
 class WXExchange:
-    def __init__(self, page, base_url="https://wx.network"):
-        self.page = page
+    def __init__(self, base_url="https://wx.network"):
+        self.base_url = base_url
         self.asset_id = "9RVjakuEc6dzBtyAwTTx43ChP8ayFBpbM1KEpJK82nAX"    # base token
         self.price_asset_id = "EikmkCRKhPD7Bx9f3avJkfiJMXre55FPTyaG8tffXfA"  # quote token (USDT/WAVES)
-        self.base_url = base_url
+        self.browser = None
+        self.page = None
+        self.user_data_dir = os.path.expanduser("~/wx_profile")  # persistent profile
+
+    async def connect(self):
+        """Launch Firefox with persistent profile so login/session persists."""
+        pw = await async_playwright().start()
+        self.browser = await pw.firefox.launch_persistent_context(
+            user_data_dir=self.user_data_dir,
+            headless=False  # 👈 show browser (needed first run to log in)
+        )
+        self.page = self.browser.pages[0] if self.browser.pages else await self.browser.new_page()
+        await self.goto_market()
+        print("✅ WX frontend ready (session stored in ~/wx_profile).")
+
+    async def close(self):
+        if self.browser:
+            await self.browser.close()
 
     async def goto_market(self):
         """Navigate directly to the hardcoded trading pair page."""
         url = f"{self.base_url}/trading/spot/{self.asset_id}_{self.price_asset_id}"
         await self.page.goto(url)
         print(f"Opened market: {url}")
+
+    async def check_login(self):
+        """Check if wallet is connected or user still needs to sign in."""
+        try:
+            connect_btn = await self.page.query_selector("button:has-text('Connect')")
+            if connect_btn:
+                print("⚠️ You are not logged in. Please connect wallet manually in the browser window.")
+                return False
+            print("✅ Wallet seems connected.")
+            return True
+        except:
+            return True
 
     async def debug_selectors(self):
         """Print all input and button selectors currently visible."""
