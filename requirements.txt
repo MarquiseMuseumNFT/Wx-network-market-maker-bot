@@ -8,6 +8,6 @@ base58
 pynacl
 asyncio
 playwright==1.47.0
-git+https://github.com/python-greenlet/greenlet.git
+
 
 
